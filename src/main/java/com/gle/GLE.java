@@ -16,6 +16,7 @@ import com.gle.listener.ModBlockListener;
 import com.gle.listener.PistonListener;
 import com.gle.listener.PlayerBlockListener;
 import com.gle.listener.PlayerDeathListener;
+import com.gle.listener.PlayerItemListener;
 import com.gle.listener.SessionListener;
 import com.gle.platform.Platform;
 import com.gle.platform.neoforge.NeoForgePlatform;
@@ -68,6 +69,7 @@ public final class GLE {
         // Игровые события мира/игроков — теперь пишет сам мод (поглощение GL, Путь E)
         NeoForge.EVENT_BUS.register(new SessionListener());
         NeoForge.EVENT_BUS.register(new PlayerBlockListener());
+        NeoForge.EVENT_BUS.register(new PlayerItemListener());
 
         // Не-игровые источники
         NeoForge.EVENT_BUS.register(new ExplosionListener());

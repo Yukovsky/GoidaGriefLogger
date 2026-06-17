@@ -15,7 +15,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BaseContainerBlockEntity;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -33,20 +32,18 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Логирование того, что игрок ВЗЯЛ/ПОЛОЖИЛ в модовые хранилища на capability (поставленный
- * Sophisticated Backpacks, ящики-моды, Create-вместилища) — таблица {@code containers},
- * action REMOVE_ITEM=0 / ADD_ITEM=1, как GriefLogger делает для ванильного сундука.
+ * Логирование того, что игрок ВЗЯЛ/ПОЛОЖИЛ в хранилища — и ванильные (сундуки/бочки/печи/…),
+ * и модовые на capability (поставленный Sophisticated Backpacks, ящики-моды, Create-вместилища) —
+ * таблица {@code containers}, action REMOVE_ITEM=0 / ADD_ITEM=1.
  * <p>
- * GriefLogger отслеживает транзакции только для {@code BaseContainerBlockEntity} (снимок при
- * открытии меню, разница при закрытии). Хранилища на capability с собственным меню (рюкзак-блок
- * и т.п.) под это не попадают, поэтому их перемещения предметов «немые». GLE повторяет тот же
- * приём, но снимает содержимое через {@code Capabilities.ItemHandler.BLOCK}:
+ * После поглощения GriefLogger (Путь E) единый писатель ведёт транзакции для ВСЕХ контейнеров.
+ * Содержимое снимается единообразно через {@code Capabilities.ItemHandler.BLOCK} (NeoForge
+ * регистрирует item-handler и для ванильных контейнеров):
  * <ol>
- *   <li>right-click по такому блоку → запоминаем позицию;</li>
+ *   <li>right-click по блоку с хендлером → запоминаем позицию;</li>
  *   <li>{@link PlayerContainerEvent.Open} → снимаем снимок предметов хендлера;</li>
  *   <li>{@link PlayerContainerEvent.Close} → читаем снова, считаем разницу, пишем дельты.</li>
  * </ol>
- * Ванильные контейнеры ({@code BaseContainerBlockEntity}) НЕ трогаем — их логирует сам GriefLogger.
  */
 public final class ContainerTransactionListener {
 
@@ -100,10 +97,14 @@ public final class ContainerTransactionListener {
         logDiff(level, snap, sp, after);
     }
 
-    /** Подходит ли блок: есть предметный хендлер и это НЕ ванильный контейнер (его пишет GL). */
+    /**
+     * Подходит ли блок: есть предметный хендлер. После поглощения GriefLogger (Путь E) сюда
+     * попадают И ванильные контейнеры ({@code BaseContainerBlockEntity} — сундуки/бочки/печи/…),
+     * И модовые хранилища на capability — единый писатель ведёт транзакции для всех.
+     */
     private static boolean isTrackable(ServerLevel level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
-        if (be == null || be instanceof BaseContainerBlockEntity) return false;
+        if (be == null) return false;
         return handlerAt(level, pos) != null;
     }
 

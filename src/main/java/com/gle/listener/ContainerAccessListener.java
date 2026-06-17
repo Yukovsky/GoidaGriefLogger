@@ -26,15 +26,14 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Логирование клика (открытия) по хранилищам и терминалам из модов — Tom's Simple Storage,
- * Sophisticated Storage/Backpacks, Create-вместилища, ящики-моды и т.п. (action INTERACT=2,
- * как GriefLogger пишет клик по ванильному сундуку).
+ * Логирование клика (открытия) по хранилищам и терминалам — ванильным (сундуки/бочки/печи/…) и
+ * из модов (Tom's Simple Storage, Sophisticated, Create-вместилища, ящики-моды) — action INTERACT=2
+ * в таблице {@code blocks}.
  * <p>
- * GriefLogger логирует interaction только по жёстко зашитому списку ВАНИЛЬНЫХ классов блоков
- * (см. {@code BlockHandler.isBlockIntractable}), поэтому модовые терминалы/хранилища у него
- * «немые». GLE добивает их: для НЕ-{@code minecraft} блоков, у которых есть предметный capability
- * или меню (MenuProvider), пишем запись доступа от реального игрока. Ванильные блоки не трогаем —
- * их уже логирует GL (во избежание дублей).
+ * После поглощения GriefLogger (Путь E) единый писатель логирует доступ для всех блоков, у которых
+ * есть предметный capability или меню (MenuProvider). Это контейнеры и верстаки. Чистые
+ * взаимодействия без контейнера (двери/рычаги/кнопки/репитеры из {@code BlockHandler}) сюда не
+ * входят — их перенос в отдельный listener взаимодействий с блоками остаётся отдельной задачей.
  */
 public final class ContainerAccessListener {
 
@@ -54,8 +53,10 @@ public final class ContainerAccessListener {
         BlockPos pos = event.getPos();
         BlockState state = level.getBlockState(pos);
         ResourceLocation key = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        // Ваниль логирует сам GriefLogger; нам — только модовые блоки.
-        if (key == null || "minecraft".equals(key.getNamespace())) return;
+        // После поглощения GriefLogger (Путь E) логируем открытие и ванильных, и модовых хранилищ.
+        // Гейт isStorageAccess (есть item-handler или MenuProvider) ограничивает нас контейнерами и
+        // верстаками — двери/рычаги/кнопки (чистое взаимодействие, не контейнеры) сюда не попадают.
+        if (key == null) return;
         if (!isStorageAccess(level, pos, state)) return;
 
         String dimension = level.dimension().location().toString();

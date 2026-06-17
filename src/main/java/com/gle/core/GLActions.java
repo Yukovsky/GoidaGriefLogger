@@ -15,11 +15,16 @@ public final class GLActions {
     public static final int INTERACT_BLOCK = 2;
     public static final int KILL_ENTITY    = 3;
 
-    // ItemAction (таблица containers)
-    public static final int REMOVE_ITEM = 0;
-    public static final int ADD_ITEM    = 1;
-    public static final int DROP_ITEM   = 2;
-    public static final int PICKUP_ITEM = 3;
+    // ItemAction (таблицы containers/items) — значения совпадают с enum ItemAction в GL
+    public static final int REMOVE_ITEM  = 0;
+    public static final int ADD_ITEM     = 1;
+    public static final int DROP_ITEM    = 2;
+    public static final int PICKUP_ITEM  = 3;
+    public static final int CRAFT_ITEM   = 4;
+    public static final int BREAK_ITEM   = 5;
+    public static final int CONSUME_ITEM = 6;
+    public static final int THROW_ITEM   = 7;
+    public static final int SHOOT_ITEM   = 8;
 
     // SessionAction (таблица sessions)
     public static final int SESSION_JOIN = 0;
