@@ -11,6 +11,7 @@ import com.gle.listener.ChatCommandListener;
 import com.gle.listener.ContainerAccessListener;
 import com.gle.listener.ContainerTransactionListener;
 import com.gle.listener.DecorationListener;
+import com.gle.listener.EnderChestListener;
 import com.gle.listener.EntityKillListener;
 import com.gle.listener.ExplosionListener;
 import com.gle.listener.ItemPickupListener;
@@ -20,6 +21,7 @@ import com.gle.listener.PlayerBlockListener;
 import com.gle.listener.PlayerDeathListener;
 import com.gle.listener.PlayerItemListener;
 import com.gle.listener.SessionListener;
+import com.gle.listener.VanillaInteractListener;
 import com.gle.platform.Platform;
 import com.gle.platform.neoforge.NeoForgePlatform;
 import com.gle.rollback.PreviewManager;
@@ -74,6 +76,8 @@ public final class GLE {
         NeoForge.EVENT_BUS.register(new PlayerItemListener());
         NeoForge.EVENT_BUS.register(new EntityKillListener());
         NeoForge.EVENT_BUS.register(new ChatCommandListener());
+        NeoForge.EVENT_BUS.register(new VanillaInteractListener());
+        NeoForge.EVENT_BUS.register(new EnderChestListener());
 
         // Не-игровые источники
         NeoForge.EVENT_BUS.register(new ExplosionListener());

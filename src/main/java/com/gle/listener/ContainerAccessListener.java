@@ -26,14 +26,12 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Логирование клика (открытия) по хранилищам и терминалам — ванильным (сундуки/бочки/печи/…) и
- * из модов (Tom's Simple Storage, Sophisticated, Create-вместилища, ящики-моды) — action INTERACT=2
- * в таблице {@code blocks}.
+ * Логирование клика (открытия) по МОДОВЫМ хранилищам и терминалам — Tom's Simple Storage,
+ * Sophisticated, Create-вместилища, ящики-моды и т.п. (action INTERACT=2 в таблице {@code blocks}).
  * <p>
- * После поглощения GriefLogger (Путь E) единый писатель логирует доступ для всех блоков, у которых
- * есть предметный capability или меню (MenuProvider). Это контейнеры и верстаки. Чистые
- * взаимодействия без контейнера (двери/рычаги/кнопки/репитеры из {@code BlockHandler}) сюда не
- * входят — их перенос в отдельный listener взаимодействий с блоками остаётся отдельной задачей.
+ * Ванильные интерактивные блоки (включая контейнеры) логирует {@link VanillaInteractListener}
+ * по точному набору GriefLogger. Здесь — только не-{@code minecraft} блоки, у которых есть предметный
+ * capability или меню (MenuProvider), чтобы покрыть модовые хранилища, которых нет в наборе GL.
  */
 public final class ContainerAccessListener {
 
@@ -53,10 +51,9 @@ public final class ContainerAccessListener {
         BlockPos pos = event.getPos();
         BlockState state = level.getBlockState(pos);
         ResourceLocation key = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        // После поглощения GriefLogger (Путь E) логируем открытие и ванильных, и модовых хранилищ.
-        // Гейт isStorageAccess (есть item-handler или MenuProvider) ограничивает нас контейнерами и
-        // верстаками — двери/рычаги/кнопки (чистое взаимодействие, не контейнеры) сюда не попадают.
-        if (key == null) return;
+        // Ванильные интерактивные блоки логирует VanillaInteractListener (точный набор GL);
+        // здесь — только МОДОВЫЕ хранилища/терминалы (не minecraft), которых нет в наборе GL.
+        if (key == null || "minecraft".equals(key.getNamespace())) return;
         if (!isStorageAccess(level, pos, state)) return;
 
         String dimension = level.dimension().location().toString();

@@ -25,6 +25,8 @@ public final class GLActions {
     public static final int CONSUME_ITEM = 6;
     public static final int THROW_ITEM   = 7;
     public static final int SHOOT_ITEM   = 8;
+    public static final int ADD_ENDER    = 9;   // положено в эндер-сундук
+    public static final int REMOVE_ENDER = 10;  // взято из эндер-сундука
 
     // SessionAction (таблица sessions)
     public static final int SESSION_JOIN = 0;

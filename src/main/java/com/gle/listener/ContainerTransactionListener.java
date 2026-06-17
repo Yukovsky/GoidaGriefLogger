@@ -16,6 +16,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.common.util.FakePlayer;
@@ -101,10 +102,12 @@ public final class ContainerTransactionListener {
      * Подходит ли блок: есть предметный хендлер. После поглощения GriefLogger (Путь E) сюда
      * попадают И ванильные контейнеры ({@code BaseContainerBlockEntity} — сундуки/бочки/печи/…),
      * И модовые хранилища на capability — единый писатель ведёт транзакции для всех.
+     * Эндер-сундук исключён: его персональный инвентарь в блоке не хранится, им занимается
+     * {@link EnderChestListener}.
      */
     private static boolean isTrackable(ServerLevel level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
-        if (be == null) return false;
+        if (be == null || be instanceof EnderChestBlockEntity) return false;
         return handlerAt(level, pos) != null;
     }
 
