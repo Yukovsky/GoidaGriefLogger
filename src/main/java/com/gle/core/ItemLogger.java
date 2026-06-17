@@ -1,6 +1,5 @@
 package com.gle.core;
 
-import com.gle.GLEConfig;
 import com.gle.db.ContainerLogDao;
 import com.gle.db.GLStorage;
 import net.minecraft.core.BlockPos;
@@ -34,13 +33,14 @@ public final class ItemLogger {
         if (stack == null || stack.isEmpty()) return;
         if (!(player.level() instanceof ServerLevel level)) return;
 
+        CoreConfig cfg = CoreConfig.get();
         String dimension = level.dimension().location().toString();
-        if (contains(GLEConfig.worldBlacklist.get(), dimension)) return;
+        if (contains(cfg.worldBlacklist(), dimension)) return;
 
         ResourceLocation itemKey = BuiltInRegistries.ITEM.getKey(stack.getItem());
         String material = GLMaterials.normalize(itemKey);
-        if (contains(GLEConfig.blockBlacklist.get(), material)) return;
-        if (itemKey != null && contains(GLEConfig.modBlacklist.get(), itemKey.getNamespace())) return;
+        if (contains(cfg.blockBlacklist(), material)) return;
+        if (itemKey != null && contains(cfg.modBlacklist(), itemKey.getNamespace())) return;
 
         byte[] data;
         try {
@@ -71,9 +71,10 @@ public final class ItemLogger {
         if (!GLStorage.isReady()) return;
         if (stack.isEmpty() || amount <= 0) return;
 
+        CoreConfig cfg = CoreConfig.get();
         String dimension = level.dimension().location().toString();
-        if (contains(GLEConfig.worldBlacklist.get(), dimension)) return;
-        if (sourceType != null && contains(GLEConfig.sourceTypeBlacklist.get(), sourceType)) return;
+        if (contains(cfg.worldBlacklist(), dimension)) return;
+        if (sourceType != null && contains(cfg.sourceTypeBlacklist(), sourceType)) return;
 
         ResourceLocation itemKey = BuiltInRegistries.ITEM.getKey(stack.getItem());
         String material = GLMaterials.normalize(itemKey);

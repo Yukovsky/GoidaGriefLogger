@@ -1,7 +1,7 @@
 # Состояние GoidaGriefLogger
 
-**Дата:** 17.06.2026
-**Версия:** 2.2.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
+**Дата:** 18.06.2026
+**Версия:** 2.2.1 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
 **План:** `../GriefLoggerExtend/docs/06_Решение_единый_писатель.md` (Путь E)
 **Собирается:** да — `gradlew jar` → `build/libs/goidagrieflogger-2.0.0.jar`
 **Расположение:** `Z:/goidacraft/GoidaGriefLogger/` — отдельный каталог, **собственный git-репозиторий**.
@@ -104,13 +104,21 @@ fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + на
 - [ ] Backpacks как отдельный модуль интеграции (сейчас покрывается общими listener'ами).
 
 ### Чистота ядра (docs/06 §9 — правило «core без импортов loader/модов»)
-- [ ] `com.gle.core.*` ещё импортирует `net.minecraft.*` (допустимо) **и** `com.gle.GLEConfig`
-      (который тянет NeoForge `ModConfigSpec`). `BlockLogger`, `ItemLogger`, `GLESourceResolver`,
-      `NbtUtil` и др. не «чистые». Нужно развести: вынести конфиг-доступ за интерфейс ядра, чтобы
-      `core` зависел только от ванильных классов и чистой Java (требование для будущего Fabric).
+- [x] **Убраны импорты NeoForge/конфига из `com.gle.core.*`.** Протечки были две: `com.gle.GLEConfig`
+      (тянет NeoForge `ModConfigSpec`) в `BlockLogger`/`ItemLogger`/`ActivationLogger` и
+      `net.neoforged…FakePlayer` в `ActivationLogger`/`GLESourceResolver`. Развели:
+      - `core/CoreConfig` — интерфейс+holder (паттерн как у `Platform`): `blockActivationEnabled`,
+        `maxNbtSizeKb`, 4 чёрных списка. Платформа регистрирует реализацию `GLEConfig.coreConfig()`
+        через `CoreConfig.set(...)` в точке входа; до инициализации — безопасный `DEFAULT`.
+      - `Platform.isFakePlayer(Entity)` + null-безопасный `Platform.isFake(Entity)`; реализация
+        `instanceof FakePlayer` ушла в `NeoForgePlatform`. Ядро спрашивает через `Platform`.
+      Проверено grep'ом: в `core/` не осталось импортов `net.neoforged`/`net.fabricmc`/`GLEConfig`/
+      мод-классов. Остаточные не-ванильные импорты — `com.gle.db.*` (нейтральны, см. ниже) и
+      `io.netty` (часть ваниль-рантайма, есть и на Fabric) — это НЕ протечки загрузчика.
 - [ ] `db/GLDatabase`, `WriteQueue`, DAO, `rollback/`, `command/` физически ещё в пакетах
       `com.gle.db`/`com.gle.rollback`/`com.gle.command`, а не в `com.gle.core.*` (как в целевой
-      схеме §6). Сейчас они платформо-нейтральны по содержимому, но не переселены в `core/`.
+      схеме §6). Платформо-нейтральны по содержимому (теперь и `core/` от них зависит без протечки),
+      но не переселены — чисто механический move пакетов, отдельный шаг.
 
 ### Мелкие фиксы (docs/06 §8)
 - [ ] **#1 refmap в jar** (`goidagrieflogger.refmap.json`). На NeoForge 1.21 рантайм Mojmap →

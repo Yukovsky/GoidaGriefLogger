@@ -1,13 +1,12 @@
 package com.gle.core;
 
-import com.gle.GLEConfig;
+import com.gle.platform.Platform;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
-import net.neoforged.neoforge.common.util.FakePlayer;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -25,13 +24,13 @@ public final class ActivationLogger {
 
     /** Залогировать факт активации блока сущностью {@code entity} (нажатие). */
     public static void logActivation(Level level, BlockPos pos, BlockState state, @Nullable Entity entity) {
-        if (!GLEConfig.enableBlockActivation.get()) return;
+        if (!CoreConfig.get().blockActivationEnabled()) return;
         if (entity == null) return; // активация без сущности (тик/редстоун) — не атрибутируем
         if (!(level instanceof ServerLevel serverLevel)) return;
 
         String userUuid;
         String sourceType;
-        if (entity instanceof ServerPlayer player && !(player instanceof FakePlayer)) {
+        if (entity instanceof ServerPlayer player && !Platform.isFake(player)) {
             userUuid = player.getUUID().toString();
             sourceType = SourceType.ACTIVATE;
         } else {

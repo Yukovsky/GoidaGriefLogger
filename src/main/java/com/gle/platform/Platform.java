@@ -1,5 +1,6 @@
 package com.gle.platform;
 
+import net.minecraft.world.entity.Entity;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -18,6 +19,13 @@ public interface Platform {
     /** Загружен ли мод с данным {@code modId} в текущем рантайме. Гейт активации интеграций. */
     boolean isModLoaded(String modId);
 
+    /**
+     * Является ли сущность fake-player'ом (Create Deployer/Schematicannon, автоматизация и т.п.).
+     * Платформо-специфично: NeoForge {@code FakePlayer} ↔ Fabric {@code FakePlayer}. Ядро спрашивает
+     * через {@link #isFake(Entity)}, не импортируя классы загрузчика.
+     */
+    boolean isFakePlayer(Entity entity);
+
     // --- глобальный holder ----------------------------------------------------
 
     @Nullable
@@ -31,5 +39,11 @@ public interface Platform {
     @Nullable
     static Platform get() {
         return HOLDER[0];
+    }
+
+    /** Null-безопасная проверка fake-player через текущую платформу. До инициализации — {@code false}. */
+    static boolean isFake(Entity entity) {
+        Platform p = get();
+        return p != null && p.isFakePlayer(entity);
     }
 }

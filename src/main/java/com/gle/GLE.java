@@ -3,6 +3,7 @@ package com.gle;
 import com.gle.api.GLExtended;
 import com.gle.api.GLExtendedApiImpl;
 import com.gle.command.GLCommand;
+import com.gle.core.CoreConfig;
 import com.gle.db.GLStorage;
 import com.gle.integration.CreateIntegration;
 import com.gle.integration.IntegrationRegistry;
@@ -61,8 +62,10 @@ public final class GLE {
     public GLE(IEventBus modEventBus, ModContainer modContainer) {
         modContainer.registerConfig(ModConfig.Type.COMMON, GLEConfig.SPEC, "goidagrieflogger-common.toml");
 
-        // Граница «ядро ↔ загрузчик»: ставим платформу до всего остального.
+        // Граница «ядро ↔ загрузчик»: ставим платформу и конфиг-обёртку ядра до всего остального,
+        // чтобы core читал настройки через CoreConfig, а не импортировал GLEConfig/NeoForge (§9).
         Platform.set(new NeoForgePlatform());
+        CoreConfig.set(GLEConfig.coreConfig());
 
         // Публичный API
         GLExtended.setApi(new GLExtendedApiImpl());

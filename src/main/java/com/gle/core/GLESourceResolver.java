@@ -1,12 +1,12 @@
 package com.gle.core;
 
+import com.gle.platform.Platform;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.projectile.AbstractHurtingProjectile;
-import net.neoforged.neoforge.common.util.FakePlayer;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -28,8 +28,8 @@ public final class GLESourceResolver {
         }
 
         // Create Deployer и прочие fake-players (это подклассы ServerPlayer!)
-        if (entity instanceof FakePlayer fake) {
-            String name = fake.getClass().getName();
+        if (Platform.isFake(entity)) {
+            String name = entity.getClass().getName();
             if (name.contains("Deployer")) {
                 return new Resolved(SourceType.CREATE_DEPLOYER, SystemUsers.CREATE);
             }

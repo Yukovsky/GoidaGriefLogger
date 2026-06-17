@@ -1,5 +1,6 @@
 package com.gle;
 
+import com.gle.core.CoreConfig;
 import com.gle.core.db.StorageSettings;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
@@ -168,6 +169,23 @@ public final class GLEConfig {
 
     private static boolean isString(Object o) {
         return o instanceof String;
+    }
+
+    /**
+     * Платформо-нейтральная обёртка настроек логирования для ЯДРА ({@link CoreConfig}).
+     * Читает значения «вживую» (на каждый вызов), чтобы перезагрузка конфига подхватывалась.
+     * Регистрируется в точке входа мода через {@code CoreConfig.set(...)} — после этого ядро
+     * не зависит от {@code GLEConfig}/NeoForge (правило §9 docs/06).
+     */
+    public static CoreConfig coreConfig() {
+        return new CoreConfig() {
+            @Override public boolean blockActivationEnabled() { return enableBlockActivation.get(); }
+            @Override public int maxNbtSizeKb() { return maxNbtSizeKb.get(); }
+            @Override public List<? extends String> worldBlacklist() { return worldBlacklist.get(); }
+            @Override public List<? extends String> sourceTypeBlacklist() { return sourceTypeBlacklist.get(); }
+            @Override public List<? extends String> blockBlacklist() { return blockBlacklist.get(); }
+            @Override public List<? extends String> modBlacklist() { return modBlacklist.get(); }
+        };
     }
 
     /**

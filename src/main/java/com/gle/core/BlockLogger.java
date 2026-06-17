@@ -1,6 +1,5 @@
 package com.gle.core;
 
-import com.gle.GLEConfig;
 import com.gle.db.BlockLogDao;
 import com.gle.db.GLStorage;
 import net.minecraft.core.BlockPos;
@@ -61,7 +60,7 @@ public final class BlockLogger {
         NbtUtil.Capture nbt = NbtUtil.Capture.EMPTY;
         if (captureNbt) {
             nbt = NbtUtil.captureBlockEntity(level, pos, level.registryAccess(),
-                    GLEConfig.maxNbtSizeKb.get());
+                    CoreConfig.get().maxNbtSizeKb());
         }
 
         // SNBT блок-стейта кладём в extra_data для точного роллбека (если не передан иной extra_data).
@@ -86,12 +85,13 @@ public final class BlockLogger {
 
     private static boolean isBlacklisted(String dimension, String sourceType,
                                          @Nullable ResourceLocation blockKey, String material) {
-        if (contains(GLEConfig.worldBlacklist.get(), dimension)) return true;
-        if (sourceType != null && contains(GLEConfig.sourceTypeBlacklist.get(), sourceType)) return true;
+        CoreConfig cfg = CoreConfig.get();
+        if (contains(cfg.worldBlacklist(), dimension)) return true;
+        if (sourceType != null && contains(cfg.sourceTypeBlacklist(), sourceType)) return true;
         if (blockKey != null) {
-            if (contains(GLEConfig.blockBlacklist.get(), blockKey.toString())) return true;
-            if (contains(GLEConfig.blockBlacklist.get(), material)) return true;
-            if (contains(GLEConfig.modBlacklist.get(), blockKey.getNamespace())) return true;
+            if (contains(cfg.blockBlacklist(), blockKey.toString())) return true;
+            if (contains(cfg.blockBlacklist(), material)) return true;
+            if (contains(cfg.modBlacklist(), blockKey.getNamespace())) return true;
         }
         return false;
     }
