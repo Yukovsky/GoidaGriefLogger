@@ -1,7 +1,7 @@
 # Состояние GoidaGriefLogger
 
 **Дата:** 17.06.2026
-**Версия:** 2.1.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
+**Версия:** 2.2.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
 **План:** `../GriefLoggerExtend/docs/06_Решение_единый_писатель.md` (Путь E)
 **Собирается:** да — `gradlew jar` → `build/libs/goidagrieflogger-2.0.0.jar`
 **Расположение:** `Z:/goidacraft/GoidaGriefLogger/` — отдельный каталог, **собственный git-репозиторий**.
@@ -78,11 +78,22 @@ fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + на
       т.к. откат мог отменить вставку в справочник, уже попавшую в кэш → иначе повисла бы FK-ссылка.
       Пользователь, которого ещё нет (промах по uuid), не кэшируется; для NOT NULL колонок строка
       пропускается (как и раньше — подзапрос GL давал NULL и ронял вставку).
-- [ ] `DROP FOREIGN KEY` с blocks/containers/items/sessions (как у CoreProtect — ноль FK).
-      С кэшами id главный очаг локов уже снят; снятие FK — следующий шаг под высокую нагрузку.
-- [ ] Append-only в горячем пути + ревизия композитных индексов `(level,x,z,time)`, `(user,time)`,
-      `(type,time)`.
-- [ ] Бенч на копии БД (цель: стабильность при 10M+ строк и пиковых bulk-событиях).
+- [x] **`DROP FOREIGN KEY`** с blocks/containers/items/sessions/chats/commands — `SchemaMigrator.
+      dropForeignKeys()`. Имена FK берутся из `information_schema`, снимаются `ALTER TABLE ... DROP
+      FOREIGN KEY` (в InnoDB — мгновенно, метаданные). Только MySQL: в SQLite FK не форсируются
+      (PRAGMA off) и локов не берут — снимать нечего. Идемпотентно (нет FK → no-op).
+- [x] **Append-only** в горячем пути — уже выполнено: все DAO делают только `INSERT`, ни одного
+      `UPDATE`/`REPLACE`/`ON DUPLICATE` в пакете `db` (проверено grep'ом). Флаг `rolled_back`
+      обновляется только при откате, не на горячем пути.
+- [x] **Ревизия композитных индексов** — `SchemaMigrator.createLookupIndexes()`. Для blocks/
+      containers/items/sessions: `(level,x,z,time)` (заменил прежний `(level,x,z)` — был его
+      префиксом), `(user,time)`, плюс `(time)` для запросов «во всех мирах». `(type,time)` из
+      общего списка плана НЕ заводим: lookup фильтрует материал уже после JOIN по `m.name`, а не
+      по `blocks.type` — индекс был бы налогом на запись без выигрыша. Проверено на SQLite:
+      идемпотентно, планировщик берёт `idx_*_pos_time` на радиус+время.
+- [ ] **Бенч на копии БД** (10M+ строк, пиковые bulk-события) — единственный незакрытый пункт
+      Фазы 2. Требует живой копии БД и запущенного сервера (которого ещё не было — см. cutover
+      ниже); из кода не выполняется. Делать на cutover вместе с прогоном dev-сервера.
 
 ### Модуляризация интеграций (docs/06 §1 Фаза 1, §9)
 - [ ] Перенести **обвязку** Create/Tom's/Backpacks в модули `integration/<mod>/` за `ModIntegration`.

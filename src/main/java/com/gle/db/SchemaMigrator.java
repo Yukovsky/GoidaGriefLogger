@@ -10,6 +10,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -39,6 +41,7 @@ public final class SchemaMigrator {
             createBaseTables(c);   // Путь E: мод сам владеет базовой схемой (GriefLogger удалён)
             addBlockColumns(c);
             createGleTables(c);
+            dropForeignKeys(c);    // Фаза 2: снять FK с горячих таблиц (ноль FK, как у CoreProtect)
             createLookupIndexes(c);
             insertSystemUsers(c);
             LOGGER.info("Миграция схемы GoidaGriefLogger завершена.");
@@ -95,6 +98,50 @@ public final class SchemaMigrator {
                 + "x " + tInt + " NOT NULL, y " + tInt + " NOT NULL, z " + tInt + " NOT NULL, message " + tMsg + " NOT NULL, "
                 + "FOREIGN KEY(user) REFERENCES users(id), FOREIGN KEY(level) REFERENCES levels(id))" + engine);
         LOGGER.info("Базовая схема обеспечена (11 таблиц).");
+    }
+
+    // --- 0b. Снятие внешних ключей (Фаза 2, docs/06 §6) ------------------------
+    //
+    // Схема GriefLogger держит FK blocks/containers/items/sessions/chats/commands → users/levels/
+    // materials. В InnoDB каждая вставка берёт shared-lock на родительские строки справочников —
+    // это и был очаг кросс-транзакционных дедлоков при двух писателях. С единым писателем дедлоков
+    // уже нет, но FK всё равно: (а) берут лишние локи на горячем пути, (б) требуют существования
+    // родителя в тот же момент. CoreProtect (64M+ строк без крахов) — НОЛЬ внешних ключей.
+    // Снимаем их: в InnoDB DROP FOREIGN KEY — мгновенная операция над метаданными, данные не трогает.
+    //
+    // SQLite: FK объявлены, но не форсируются (PRAGMA foreign_keys off) и не берут локов — снимать
+    // нечего, а ALTER TABLE ... DROP в SQLite потребовал бы пересборки таблицы. Поэтому — только MySQL.
+
+    private void dropForeignKeys(Connection c) {
+        if (!db.isMysql()) return;
+        String[] tables = {"blocks", "containers", "items", "sessions", "chats", "commands"};
+        int dropped = 0;
+        for (String t : tables) {
+            for (String fk : foreignKeyNames(c, t)) {
+                execQuiet(c, "ALTER TABLE " + t + " DROP FOREIGN KEY " + fk);
+                LOGGER.info("Снят внешний ключ {}.{}", t, fk);
+                dropped++;
+            }
+        }
+        if (dropped > 0) LOGGER.info("Внешние ключи сняты с горячих таблиц ({} шт.).", dropped);
+        // Замечание: InnoDB оставляет одно-колоночные индексы, которые автоматически создавал под FK
+        // (на user/level/type). Они безвредны (а порой полезны), пересоздавать/удалять их не нужно.
+    }
+
+    /** Имена FK-ограничений таблицы из {@code information_schema} (MySQL). Пусто при любой ошибке. */
+    private List<String> foreignKeyNames(Connection c, String table) {
+        List<String> names = new ArrayList<>();
+        String sql = "SELECT constraint_name FROM information_schema.table_constraints "
+                + "WHERE table_schema = DATABASE() AND table_name = ? AND constraint_type = 'FOREIGN KEY'";
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, table);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) names.add(rs.getString(1));
+            }
+        } catch (SQLException e) {
+            LOGGER.warn("Не удалось перечислить внешние ключи {}: {}", table, e.getMessage());
+        }
+        return names;
     }
 
     // --- 1. Колонки в blocks ---------------------------------------------------
@@ -205,21 +252,34 @@ public final class SchemaMigrator {
     // --- 2b. Индексы для /gl search -------------------------------------------
 
     /**
-     * Индексы, ускоряющие lookup ({@code /gl search}) и rollback по таблицам GriefLogger.
-     * GL для своих таблиц spatial/time-индексов не создаёт, поэтому каждый поиск делал полный
-     * скан blocks/containers/items. Добавляем:
+     * Индексы под реальные запросы lookup ({@code /gl search}) и rollback ({@link com.gle.command.LookupService},
+     * {@code RollbackData}). Доминирующая форма запроса: {@code level=? AND time BETWEEN ? AND ?
+     * AND x/y/z BETWEEN ? AND ?} с {@code ORDER BY time DESC}, опционально {@code AND user=?}.
+     * GL для своих таблиц индексов не создавал — каждый поиск был полным сканом.
+     * <p>
+     * Ревизия Фазы 2 (приём CoreProtect, docs/06 §6):
      * <ul>
-     *   <li>{@code (level, x, z)} — для радиусных запросов (узкий бокс по координатам);</li>
-     *   <li>{@code (time)} — для запросов «во всех мирах»/по времени (ORDER BY time DESC LIMIT).</li>
+     *   <li>{@code (level, x, z, time)} — радиусные запросы: бокс по координатам И сортировка/диапазон
+     *       по времени покрываются одним индексом (заменяет прежний {@code (level, x, z)} — тот был
+     *       его префиксом, поэтому старый индекс снимаем как избыточный);</li>
+     *   <li>{@code (user, time)} — запросы «по игроку» (история игрока, rollback по игроку);</li>
+     *   <li>{@code (time)} — запросы «во всех мирах» по времени (нет префикса level → нужен отдельный).</li>
      * </ul>
-     * Создаются один раз; стоимость на запись окупается за счёт батч-коммитов {@link WriteQueue}.
+     * GL-фильтра по {@code type} (материалу) на стороне таблицы нет (материал фильтруется уже после
+     * JOIN по {@code m.name}), поэтому {@code (type, time)} из общего списка плана здесь не заводим —
+     * это был бы налог на запись без выигрыша на чтении.
+     * Стоимость на запись окупается батч-коммитами {@link WriteQueue}.
      */
     private void createLookupIndexes(Connection c) {
         for (String t : new String[]{"blocks", "containers", "items"}) {
-            createIndex(c, "idx_" + t + "_pos",  t, "level, x, z");
-            createIndex(c, "idx_" + t + "_time", t, "time");
+            dropIndexQuiet(c, t, "idx_" + t + "_pos");                 // заменяем (level,x,z) на расширенный
+            createIndex(c, "idx_" + t + "_pos_time", t, "level, x, z, time");
+            createIndex(c, "idx_" + t + "_user",     t, "user, time");
+            createIndex(c, "idx_" + t + "_time",     t, "time");
         }
-        createIndex(c, "idx_sessions_pos", "sessions", "level, x, z");
+        dropIndexQuiet(c, "sessions", "idx_sessions_pos");
+        createIndex(c, "idx_sessions_pos_time", "sessions", "level, x, z, time");
+        createIndex(c, "idx_sessions_user",     "sessions", "user, time");
         createIndex(c, "idx_gle_signs_pos",   "gle_signs",   "level, x, z");
         createIndex(c, "idx_gle_we_pos",      "gle_world_entities", "level, x, z");
         createIndex(c, "idx_gle_deaths_pos",  "gle_player_deaths",  "level, x, z");
@@ -228,6 +288,12 @@ public final class SchemaMigrator {
     private void createIndex(Connection c, String name, String table, String columns) {
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ")
                 + name + " ON " + table + "(" + columns + ")");
+    }
+
+    /** Снять индекс, если он есть. MySQL требует имя таблицы; SQLite — {@code IF EXISTS}. */
+    private void dropIndexQuiet(Connection c, String table, String name) {
+        if (db.isMysql()) execQuiet(c, "DROP INDEX " + name + " ON " + table);
+        else execQuiet(c, "DROP INDEX IF EXISTS " + name);
     }
 
     // --- 3. Системные пользователи --------------------------------------------
