@@ -1,0 +1,23 @@
+# Gradle / build
+build/
+.gradle/
+out/
+run/
+runs/
+*.class
+
+# IDE
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+
+# Misc
+*.log
+tmp/
+# Research: cloned upstream repos (GriefLogger, GLRA) — reference only, not part of GLE
+research/
+
+# Локальные логи сборки
+build_log.txt

@@ -1,0 +1,53 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+issueTrackerURL = "https://github.com/"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = '''
+${mod_description}
+'''
+
+# Mixin-конфигурация
+[[mixins]]
+config = "gle.mixins.json"
+
+# --- Зависимости ---
+
+# NeoForge
+[[dependencies.${mod_id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "${neo_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+# Minecraft
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+# GriefLogger поглощён (Путь E): GoidaGriefLogger — единственный логгер и единственный писатель.
+# Запускать вместе со старым grieflogger НЕЛЬЗЯ (оба заберут /gl и оба будут писать).
+# Поэтому объявляем несовместимость, чтобы загрузчик не дал поднять оба мода разом.
+[[dependencies.${mod_id}]]
+modId = "grieflogger"
+type = "incompatible"
+versionRange = "*"
+ordering = "NONE"
+side = "BOTH"
+
+# Create — опциональная интеграция, грузимся после если присутствует
+[[dependencies.${mod_id}]]
+modId = "create"
+type = "optional"
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"

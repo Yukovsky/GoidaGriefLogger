@@ -1,0 +1,18 @@
+GoidaGriefLogger
+Copyright 2026 Goida Team
+
+This product is a fork of and incorporates portions of:
+
+  GriefLogger
+  Copyright daqem
+  Licensed under the Apache License, Version 2.0.
+  https://github.com/daqem/GriefLogger
+
+Modifications and additions by the Goida Team are likewise licensed under the
+Apache License, Version 2.0 (see LICENSE). Files originating from or derived
+from GriefLogger carry a prominent notice of modification per Apache-2.0 §4(b).
+
+Database schema (tables users/levels/materials/entities/blocks/containers/items/
+sessions/usernames/chats/commands and integer action codes) originates from
+GriefLogger and is reproduced here so that GoidaGriefLogger is the sole owner
+and writer of that schema (single-writer architecture, see docs/06).

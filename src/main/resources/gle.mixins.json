@@ -1,0 +1,27 @@
+{
+  "required": true,
+  "minVersion": "0.8.5",
+  "package": "com.gle.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "gle.refmap.json",
+  "mixins": [
+    "HopperBlockEntityMixin",
+    "SignBlockEntityMixin",
+    "ItemFrameMixin",
+    "FallingBlockEntityMixin",
+    "MobGriefMixin",
+    "BasePressurePlateBlockMixin",
+    "TripWireBlockMixin",
+    "LevelChunkMixin",
+    "BlockCapabilityMixin",
+    "create.ContraptionMixin",
+    "create.LaunchedItemMixin",
+    "create.ArmInteractionPointMixin",
+    "toms.StorageTerminalMenuMixin",
+    "toms.StorageTerminalBlockEntityMixin"
+  ],
+  "client": [],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

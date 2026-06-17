@@ -1,0 +1,104 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.141'
+    id 'idea'
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://maven.neoforged.net/releases' }
+}
+
+neoForge {
+    version = project.neo_version
+
+    parchment {
+        mappingsVersion = project.parchment_mappings_version
+        minecraftVersion = project.parchment_minecraft_version
+    }
+
+    // Mixin-конфиг мода
+    addModdingDependenciesTo(sourceSets.main)
+
+    runs {
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+        client {
+            client()
+        }
+        server {
+            server()
+            programArgument '--nogui'
+        }
+    }
+
+    mods {
+        "${mod_id}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+configurations {
+    // JDBC-драйверы, попадающие в classpath dev-окружения
+    localRuntime
+}
+
+dependencies {
+    // JDBC-драйверы. GoidaGriefLogger — standalone (GriefLogger удалён), поэтому драйверы он
+    // больше НЕ наследует от GL. Компилируемся против драйвера; в dev даём через localRuntime.
+    // В проде:
+    //   - MySQL: connector ставится в окружение сервера отдельно (как и раньше);
+    //   - SQLite: положить sqlite-jdbc в classpath/моды (раньше его давал GL).
+    // Бандлинг через jarJar теперь безопасен (конфликт был только с sqlite, который вёз GL) —
+    // отложено на этап cutover, чтобы не трогать рабочую сборку.
+    compileOnly "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
+    localRuntime "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
+
+    compileOnly "com.mysql:mysql-connector-j:${mysql_connector_version}"
+    localRuntime "com.mysql:mysql-connector-j:${mysql_connector_version}"
+}
+
+// Сделать localRuntime доступным в dev-запусках, не утягивая в published-артефакт
+configurations.runtimeClasspath.extendsFrom configurations.localRuntime
+
+// Подстановка переменных в neoforge.mods.toml
+var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+    var replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description
+    ]
+    inputs.properties replaceProperties
+    expand replaceProperties
+    from "src/main/templates"
+    into "build/generated/sources/modMetadata"
+}
+
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
