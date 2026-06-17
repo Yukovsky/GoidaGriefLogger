@@ -19,6 +19,7 @@ public final class GLStorage {
     private final ContainerLogDao containerDao;
     private final GleEventsDao eventsDao;
     private final SessionDao sessionDao;
+    private final TextLogDao textDao;
     private volatile boolean ready;
 
     /**
@@ -35,6 +36,7 @@ public final class GLStorage {
         this.containerDao = new ContainerLogDao(database, writeQueue);
         this.eventsDao = new GleEventsDao(database, writeQueue);
         this.sessionDao = new SessionDao(database, writeQueue);
+        this.textDao = new TextLogDao(database, writeQueue);
     }
 
     /** Инициализация при старте сервера. Возвращает true, если хранилище готово к записи. */
@@ -96,6 +98,10 @@ public final class GLStorage {
 
     public SessionDao sessions() {
         return sessionDao;
+    }
+
+    public TextLogDao text() {
+        return textDao;
     }
 
     public GLDatabase database() {

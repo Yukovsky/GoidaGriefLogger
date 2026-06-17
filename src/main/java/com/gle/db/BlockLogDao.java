@@ -1,5 +1,6 @@
 package com.gle.db;
 
+import com.gle.core.GLActions;
 import org.jetbrains.annotations.Nullable;
 
 import java.sql.PreparedStatement;
@@ -81,6 +82,46 @@ public final class BlockLogDao {
                     b.setNull(12, Types.BLOB);
                 }
                 b.setInt(13, e.nbtTruncated() ? 1 : 0);
+                b.executeUpdate();
+            }
+        });
+    }
+
+    /**
+     * Запись убийства сущности игроком в таблицу {@code blocks} (action KILL=3).
+     * <p>
+     * Повторяет приём GriefLogger: имя сущности живёт в справочнике {@code entities}, и для kill-строк
+     * колонка {@code blocks.type} ссылается на {@code entities.id} (а не на {@code materials.id}).
+     * Инспектор различает это по {@code action == KILL_ENTITY}.
+     */
+    public void insertEntityKill(long time, String userUuid, String levelName,
+                                 int x, int y, int z, String entityName) {
+        final boolean mysql = db.isMysql();
+        final String ignore = mysql ? "INSERT IGNORE" : "INSERT OR IGNORE";
+        final String entSql = ignore + " INTO entities(name) VALUES(?)";
+        final String lvlSql = ignore + " INTO levels(name) VALUES(?)";
+        final String blockSql = ignore + " INTO blocks(time, user, level, x, y, z, type, action) "
+                + "VALUES(?, (SELECT id FROM users WHERE uuid = ?), (SELECT id FROM levels WHERE name = ?), "
+                + "?, ?, ?, (SELECT id FROM entities WHERE name = ?), ?)";
+
+        queue.submit(conn -> {
+            try (PreparedStatement ent = conn.prepareStatement(entSql)) {
+                ent.setString(1, entityName);
+                ent.executeUpdate();
+            }
+            try (PreparedStatement lvl = conn.prepareStatement(lvlSql)) {
+                lvl.setString(1, levelName);
+                lvl.executeUpdate();
+            }
+            try (PreparedStatement b = conn.prepareStatement(blockSql)) {
+                b.setLong(1, time);
+                b.setString(2, userUuid);
+                b.setString(3, levelName);
+                b.setInt(4, x);
+                b.setInt(5, y);
+                b.setInt(6, z);
+                b.setString(7, entityName);
+                b.setInt(8, GLActions.KILL_ENTITY);
                 b.executeUpdate();
             }
         });

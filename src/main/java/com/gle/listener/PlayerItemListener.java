@@ -12,12 +12,10 @@ import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 
 /**
- * Действия игрока с предметами «в руках/на земле» — выброс, крафт, съедание — в таблицу {@code items}.
- * Раньше их писал GriefLogger (ItemAction DROP=2 / CRAFT=4 / CONSUME=6); после поглощения GL
- * (Путь E) пишет ЕДИНЫЙ писатель GoidaGriefLogger. Подбор покрыт отдельным {@link ItemPickupListener}.
- * <p>
- * Выброс/выстрел/поломка предмета через миксины (ProjectileMixin/ItemMixin у GL) пока не перенесены —
- * это отдельная задача миксин-порта.
+ * Действия игрока с предметами «в руках/на земле» — выброс, крафт, выплавка, съедание — в таблицу
+ * {@code items}. Раньше их писал GriefLogger (ItemAction DROP=2 / CRAFT=4 / CONSUME=6); после
+ * поглощения GL (Путь E) пишет ЕДИНЫЙ писатель GoidaGriefLogger. Подбор — {@link ItemPickupListener};
+ * бросок/выстрел/поломка — миксины {@code ProjectileMixin}/{@code ItemDurabilityMixin}.
  */
 public final class PlayerItemListener {
 
@@ -34,6 +32,13 @@ public final class PlayerItemListener {
     public void onCraft(PlayerEvent.ItemCraftedEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
         log(sp, event.getCrafting(), GLActions.CRAFT_ITEM);
+    }
+
+    /** Выплавка из печи (забор результата) → CRAFT=4 (как у GriefLogger). */
+    @SubscribeEvent
+    public void onSmelt(PlayerEvent.ItemSmeltedEvent event) {
+        if (!(event.getEntity() instanceof ServerPlayer sp)) return;
+        log(sp, event.getSmelting(), GLActions.CRAFT_ITEM);
     }
 
     /** Съедание/выпивание (еда, зелья, молоко) → CONSUME=6. */

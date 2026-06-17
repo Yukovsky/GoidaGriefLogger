@@ -7,9 +7,11 @@ import com.gle.db.GLStorage;
 import com.gle.integration.CreateIntegration;
 import com.gle.integration.IntegrationRegistry;
 import com.gle.integration.TomsIntegration;
+import com.gle.listener.ChatCommandListener;
 import com.gle.listener.ContainerAccessListener;
 import com.gle.listener.ContainerTransactionListener;
 import com.gle.listener.DecorationListener;
+import com.gle.listener.EntityKillListener;
 import com.gle.listener.ExplosionListener;
 import com.gle.listener.ItemPickupListener;
 import com.gle.listener.ModBlockListener;
@@ -70,6 +72,8 @@ public final class GLE {
         NeoForge.EVENT_BUS.register(new SessionListener());
         NeoForge.EVENT_BUS.register(new PlayerBlockListener());
         NeoForge.EVENT_BUS.register(new PlayerItemListener());
+        NeoForge.EVENT_BUS.register(new EntityKillListener());
+        NeoForge.EVENT_BUS.register(new ChatCommandListener());
 
         // Не-игровые источники
         NeoForge.EVENT_BUS.register(new ExplosionListener());
