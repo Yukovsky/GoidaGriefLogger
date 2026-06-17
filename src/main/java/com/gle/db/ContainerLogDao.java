@@ -1,24 +1,31 @@
 package com.gle.db;
 
+import com.gle.core.db.IdCache;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.PreparedStatement;
-import java.sql.SQLException;
 import java.sql.Types;
 
 /**
- * Запись перемещений предметов в таблицу {@code containers} GriefLogger.
- * Повторяет формат GL: {@code INSERT OR IGNORE INTO materials}, затем
- * {@code INSERT INTO containers(time, user, level, x, y, z, type, data, amount, action)}.
+ * Запись перемещений предметов в таблицы {@code containers}/{@code items} GriefLogger.
+ * Формат строк — как у GL; id справочников ({@code materials}/{@code levels}/{@code users})
+ * берутся из {@link IdCache} (Фаза 2): вставка в справочник — только при первом появлении,
+ * горячая вставка кладёт готовые int-id напрямую.
  */
 public final class ContainerLogDao {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("GoidaGriefLogger/ContainerLogDao");
+
     private final GLDatabase db;
     private final WriteQueue queue;
+    private final IdCache ids;
 
-    public ContainerLogDao(GLDatabase db, WriteQueue queue) {
+    public ContainerLogDao(GLDatabase db, WriteQueue queue, IdCache ids) {
         this.db = db;
         this.queue = queue;
+        this.ids = ids;
     }
 
     /** Снимок одной записи контейнера. */
@@ -47,30 +54,25 @@ public final class ContainerLogDao {
     }
 
     private void insertInto(String table, ContainerEntry e) {
-        final boolean mysql = db.isMysql();
-        final String matSql = (mysql ? "INSERT IGNORE" : "INSERT OR IGNORE") + " INTO materials(name) VALUES(?)";
-        final String lvlSql = (mysql ? "INSERT IGNORE" : "INSERT OR IGNORE") + " INTO levels(name) VALUES(?)";
         final String insSql = "INSERT INTO " + table + "(time, user, level, x, y, z, type, data, amount, action) "
-                + "VALUES(?, (SELECT id FROM users WHERE uuid = ?), (SELECT id FROM levels WHERE name = ?), "
-                + "?, ?, ?, (SELECT id FROM materials WHERE name = ?), ?, ?, ?)";
+                + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         queue.submit(conn -> {
-            try (PreparedStatement mat = conn.prepareStatement(matSql)) {
-                mat.setString(1, e.material());
-                mat.executeUpdate();
+            Integer userId = ids.userId(conn, e.userUuid());
+            if (userId == null) {
+                LOGGER.debug("{}: пропуск — нет пользователя uuid={}", table, e.userUuid());
+                return;
             }
-            try (PreparedStatement lvl = conn.prepareStatement(lvlSql)) {
-                lvl.setString(1, e.levelName());
-                lvl.executeUpdate();
-            }
+            int levelId = ids.levelId(conn, e.levelName());
+            int materialId = ids.materialId(conn, e.material());
             try (PreparedStatement c = conn.prepareStatement(insSql)) {
                 c.setLong(1, e.time());
-                c.setString(2, e.userUuid());
-                c.setString(3, e.levelName());
+                c.setInt(2, userId);
+                c.setInt(3, levelId);
                 c.setInt(4, e.x());
                 c.setInt(5, e.y());
                 c.setInt(6, e.z());
-                c.setString(7, e.material());
+                c.setInt(7, materialId);
                 if (e.data() != null) c.setBytes(8, e.data());
                 else c.setNull(8, Types.BLOB);
                 c.setInt(9, e.amount());

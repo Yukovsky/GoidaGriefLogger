@@ -1,7 +1,10 @@
 package com.gle.db;
 
 import com.gle.core.GLActions;
+import com.gle.core.db.IdCache;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -10,22 +13,28 @@ import java.sql.Types;
 /**
  * Запись изменений блоков в таблицу {@code blocks} GriefLogger с расширениями GLE.
  * <p>
- * Повторяет приём GriefLogger: {@code INSERT OR IGNORE INTO materials/levels} для гарантии
- * существования внешних ключей, затем вставка строки {@code blocks} с подзапросами по id.
+ * Фаза 2 (docs/06 §6): id справочников ({@code materials}/{@code levels}/{@code users}) берутся
+ * из {@link IdCache} — вставка в справочник идёт только при первом появлении имени, а горячая
+ * вставка {@code blocks} кладёт готовые int-id напрямую (без {@code INSERT IGNORE} на каждое
+ * событие и без подзапросов {@code (SELECT id ...)}).
  * Дополнительно заполняет колонки GLE: {@code source_type}, {@code source_player_uuid},
  * {@code extra_data}, {@code block_nbt}, {@code nbt_truncated}.
  * <p>
- * Все данные — иммутабельный снимок, снятый на игровом потоке; сама вставка выполняется
- * на потоке {@link WriteQueue}.
+ * Все данные — иммутабельный снимок, снятый на игровом потоке; разрешение id и сама вставка
+ * выполняются на потоке {@link WriteQueue}.
  */
 public final class BlockLogDao {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("GoidaGriefLogger/BlockLogDao");
+
     private final GLDatabase db;
     private final WriteQueue queue;
+    private final IdCache ids;
 
-    public BlockLogDao(GLDatabase db, WriteQueue queue) {
+    public BlockLogDao(GLDatabase db, WriteQueue queue, IdCache ids) {
         this.db = db;
         this.queue = queue;
+        this.ids = ids;
     }
 
     /** Снимок одной записи блока. */
@@ -44,34 +53,31 @@ public final class BlockLogDao {
     ) {}
 
     public void insert(BlockEntry e) {
-        boolean mysql = db.isMysql();
-        final String ignore = mysql ? "INSERT IGNORE" : "INSERT OR IGNORE";
-
-        final String matSql   = ignore + " INTO materials(name) VALUES(?)";
-        final String lvlSql   = ignore + " INTO levels(name) VALUES(?)";
+        final String ignore = db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE";
         final String blockSql = ignore + " INTO blocks("
                 + "time, user, level, x, y, z, type, action, "
                 + "source_type, source_player_uuid, extra_data, block_nbt, nbt_truncated) "
-                + "VALUES(?, (SELECT id FROM users WHERE uuid = ?), (SELECT id FROM levels WHERE name = ?), "
-                + "?, ?, ?, (SELECT id FROM materials WHERE name = ?), ?, ?, ?, ?, ?, ?)";
+                + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         queue.submit(conn -> {
-            try (PreparedStatement mat = conn.prepareStatement(matSql)) {
-                mat.setString(1, e.material());
-                mat.executeUpdate();
+            Integer userId = ids.userId(conn, e.userUuid());
+            if (userId == null) {
+                // blocks.user NOT NULL: пользователя ещё нет — пропускаем (так же поступал
+                // подзапрос GriefLogger, дававший NULL и роняя вставку по NOT NULL).
+                LOGGER.debug("blocks: пропуск — нет пользователя uuid={}", e.userUuid());
+                return;
             }
-            try (PreparedStatement lvl = conn.prepareStatement(lvlSql)) {
-                lvl.setString(1, e.levelName());
-                lvl.executeUpdate();
-            }
+            int levelId = ids.levelId(conn, e.levelName());
+            int materialId = ids.materialId(conn, e.material());
+
             try (PreparedStatement b = conn.prepareStatement(blockSql)) {
                 b.setLong(1, e.time());
-                b.setString(2, e.userUuid());
-                b.setString(3, e.levelName());
+                b.setInt(2, userId);
+                b.setInt(3, levelId);
                 b.setInt(4, e.x());
                 b.setInt(5, e.y());
                 b.setInt(6, e.z());
-                b.setString(7, e.material());
+                b.setInt(7, materialId);
                 b.setInt(8, e.action());
                 setNullableString(b, 9, e.sourceType());
                 setNullableString(b, 10, e.sourcePlayerUuid());
@@ -96,31 +102,26 @@ public final class BlockLogDao {
      */
     public void insertEntityKill(long time, String userUuid, String levelName,
                                  int x, int y, int z, String entityName) {
-        final boolean mysql = db.isMysql();
-        final String ignore = mysql ? "INSERT IGNORE" : "INSERT OR IGNORE";
-        final String entSql = ignore + " INTO entities(name) VALUES(?)";
-        final String lvlSql = ignore + " INTO levels(name) VALUES(?)";
+        final String ignore = db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE";
         final String blockSql = ignore + " INTO blocks(time, user, level, x, y, z, type, action) "
-                + "VALUES(?, (SELECT id FROM users WHERE uuid = ?), (SELECT id FROM levels WHERE name = ?), "
-                + "?, ?, ?, (SELECT id FROM entities WHERE name = ?), ?)";
+                + "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
 
         queue.submit(conn -> {
-            try (PreparedStatement ent = conn.prepareStatement(entSql)) {
-                ent.setString(1, entityName);
-                ent.executeUpdate();
+            Integer userId = ids.userId(conn, userUuid);
+            if (userId == null) {
+                LOGGER.debug("blocks(kill): пропуск — нет пользователя uuid={}", userUuid);
+                return;
             }
-            try (PreparedStatement lvl = conn.prepareStatement(lvlSql)) {
-                lvl.setString(1, levelName);
-                lvl.executeUpdate();
-            }
+            int levelId = ids.levelId(conn, levelName);
+            int entityId = ids.entityId(conn, entityName); // type → entities.id для kill-строк
             try (PreparedStatement b = conn.prepareStatement(blockSql)) {
                 b.setLong(1, time);
-                b.setString(2, userUuid);
-                b.setString(3, levelName);
+                b.setInt(2, userId);
+                b.setInt(3, levelId);
                 b.setInt(4, x);
                 b.setInt(5, y);
                 b.setInt(6, z);
-                b.setString(7, entityName);
+                b.setInt(7, entityId);
                 b.setInt(8, GLActions.KILL_ENTITY);
                 b.executeUpdate();
             }

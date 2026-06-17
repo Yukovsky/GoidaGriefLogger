@@ -1,7 +1,7 @@
 # Состояние GoidaGriefLogger
 
 **Дата:** 17.06.2026
-**Версия:** 2.0.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
+**Версия:** 2.1.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
 **План:** `../GriefLoggerExtend/docs/06_Решение_единый_писатель.md` (Путь E)
 **Собирается:** да — `gradlew jar` → `build/libs/goidagrieflogger-2.0.0.jar`
 **Расположение:** `Z:/goidacraft/GoidaGriefLogger/` — отдельный каталог, **собственный git-репозиторий**.
@@ -68,10 +68,18 @@ fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + на
 ## Что из плана ещё НЕ реализовано
 
 ### Фаза 2 — оптимизация схемы под нагрузку (docs/06 §6, §8)
+- [x] **In-memory кэши id** (главный пункт) — `core/db/IdCache` (uuid→id для users; name→id для
+      materials/levels/entities). `INSERT` в справочник идёт только при ПЕРВОМ появлении имени;
+      попадание в кэш отдаёт готовый int-id без обращения к БД. Все 6 DAO переведены: горячие
+      вставки (blocks/containers/items/sessions/chats/commands/gle_*) кладут int-id напрямую —
+      без `INSERT IGNORE` на каждое событие и без подзапросов `(SELECT id ...)`. Кэш разделяется
+      всеми DAO через `GLStorage`. Кэш живёт только на потоке `WriteQueue` (гонок нет).
+      **Инвалидация:** при откате пакета `WriteQueue` вызывает `IdCache.clear()` (хук `setOnRollback`),
+      т.к. откат мог отменить вставку в справочник, уже попавшую в кэш → иначе повисла бы FK-ссылка.
+      Пользователь, которого ещё нет (промах по uuid), не кэшируется; для NOT NULL колонок строка
+      пропускается (как и раньше — подзапрос GL давал NULL и ронял вставку).
 - [ ] `DROP FOREIGN KEY` с blocks/containers/items/sessions (как у CoreProtect — ноль FK).
-- [ ] **In-memory кэши id** для materials/levels/users/entities — чтобы `INSERT` в справочники
-      шёл только при первом появлении (сейчас на каждое событие делается `INSERT IGNORE`
-      + подзапросы `SELECT id`). Это главный пункт оптимизации.
+      С кэшами id главный очаг локов уже снят; снятие FK — следующий шаг под высокую нагрузку.
 - [ ] Append-only в горячем пути + ревизия композитных индексов `(level,x,z,time)`, `(user,time)`,
       `(type,time)`.
 - [ ] Бенч на копии БД (цель: стабильность при 10M+ строк и пиковых bulk-событиях).

@@ -1,5 +1,9 @@
 package com.gle.db;
 
+import com.gle.core.db.IdCache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Запись игровых сессий (вход/выход игрока) в таблицу {@code sessions}.
  * <p>
@@ -7,15 +11,22 @@ package com.gle.db;
  * соединением; теперь это делает ЕДИНЫЙ писатель {@link WriteQueue} — тот же асинхронный путь,
  * что и для всех остальных событий. На вход также обеспечиваем существование пользователя
  * (справочник {@code users}) и истории имён ({@code usernames}), как делал GL.
+ * <p>
+ * Именно здесь пользователь впервые попадает в {@link IdCache} ({@code upsertUser}) — после этого
+ * все остальные события игрока резолвят его id из кэша без обращения к БД.
  */
 public final class SessionDao {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("GoidaGriefLogger/SessionDao");
+
     private final GLDatabase db;
     private final WriteQueue queue;
+    private final IdCache ids;
 
-    public SessionDao(GLDatabase db, WriteQueue queue) {
+    public SessionDao(GLDatabase db, WriteQueue queue, IdCache ids) {
         this.db = db;
         this.queue = queue;
+        this.ids = ids;
     }
 
     /** Снимок сессии, снятый на игровом потоке. */
@@ -29,35 +40,30 @@ public final class SessionDao {
     ) {}
 
     public void insert(SessionEntry e) {
-        final boolean mysql = db.isMysql();
-        final String ignore = mysql ? "INSERT IGNORE" : "INSERT OR IGNORE";
-
-        final String userSql = ignore + " INTO users(name, uuid) VALUES(?, ?)";
+        final String ignore = db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE";
         final String nameSql = ignore + " INTO usernames(time, uuid, name) VALUES(?, ?, ?)";
-        final String lvlSql  = ignore + " INTO levels(name) VALUES(?)";
         final String sesSql  = ignore + " INTO sessions(time, user, level, x, y, z, action) "
-                + "VALUES(?, (SELECT id FROM users WHERE uuid = ?), (SELECT id FROM levels WHERE name = ?), ?, ?, ?, ?)";
+                + "VALUES(?, ?, ?, ?, ?, ?, ?)";
 
         queue.submit(conn -> {
-            try (var ps = conn.prepareStatement(userSql)) {
-                ps.setString(1, e.playerName());
-                ps.setString(2, e.playerUuid());
-                ps.executeUpdate();
+            Integer userId = ids.upsertUser(conn, e.playerUuid(), e.playerName());
+            if (userId == null) {
+                LOGGER.warn("sessions: не удалось обеспечить пользователя uuid={} — сессия не записана",
+                        e.playerUuid());
+                return;
             }
+            // usernames — таблица истории имён (time-series), кэшем не покрывается; пишем как GL.
             try (var ps = conn.prepareStatement(nameSql)) {
                 ps.setLong(1, e.time());
                 ps.setString(2, e.playerUuid());
                 ps.setString(3, e.playerName());
                 ps.executeUpdate();
             }
-            try (var ps = conn.prepareStatement(lvlSql)) {
-                ps.setString(1, e.levelName());
-                ps.executeUpdate();
-            }
+            int levelId = ids.levelId(conn, e.levelName());
             try (var ps = conn.prepareStatement(sesSql)) {
                 ps.setLong(1, e.time());
-                ps.setString(2, e.playerUuid());
-                ps.setString(3, e.levelName());
+                ps.setInt(2, userId);
+                ps.setInt(3, levelId);
                 ps.setInt(4, e.x());
                 ps.setInt(5, e.y());
                 ps.setInt(6, e.z());

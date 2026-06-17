@@ -49,11 +49,23 @@ public final class WriteQueue {
     private final AtomicLong dropped = new AtomicLong();
     private long lastOverflowWarn = 0;
 
+    /**
+     * Хук, вызываемый при ОТКАТЕ пакета (после {@code rollback()}). Нужен, чтобы инвалидировать
+     * {@link com.gle.core.db.IdCache}: откат мог отменить вставки в справочники, которые кэш уже
+     * запомнил. Держим как {@link Runnable}, чтобы {@code WriteQueue} не зависел от ядра.
+     */
+    private volatile Runnable onRollback = () -> {};
+
     public WriteQueue(GLDatabase db, int capacity) {
         this.db = db;
         this.queue = new ArrayBlockingQueue<>(Math.max(256, capacity));
         this.worker = new Thread(this::loop, "GLE-DB-Writer");
         this.worker.setDaemon(true);
+    }
+
+    /** Установить хук, вызываемый при откате пакета (например, сброс {@code IdCache}). */
+    public void setOnRollback(Runnable onRollback) {
+        if (onRollback != null) this.onRollback = onRollback;
     }
 
     public void start() {
@@ -157,6 +169,12 @@ public final class WriteQueue {
                 c.rollback();
             } catch (SQLException ignored) {
                 // соединение, вероятно, уже нерабочее — переподключение восстановит
+            }
+            // Пакет откачен: справочные id, закэшированные в этом пакете, могли исчезнуть из БД.
+            try {
+                onRollback.run();
+            } catch (RuntimeException hookEx) {
+                LOGGER.warn("Хук отката WriteQueue бросил исключение", hookEx);
             }
             throw e;
         } finally {

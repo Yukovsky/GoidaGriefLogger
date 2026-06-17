@@ -1,5 +1,6 @@
 package com.gle.db;
 
+import com.gle.core.db.IdCache;
 import org.jetbrains.annotations.Nullable;
 
 import java.sql.PreparedStatement;
@@ -10,19 +11,26 @@ import java.sql.Types;
  * Запись сложных событий GLE в собственные таблицы ({@code gle_signs}, {@code gle_world_entities},
  * {@code gle_player_deaths}). Эти события не вписываются в int-действия GriefLogger и хранятся
  * со своим {@code id} PK для удобного роллбека.
+ * <p>
+ * id справочников ({@code levels}/{@code users}) — из {@link IdCache} (Фаза 2). Колонка {@code user}
+ * в этих таблицах НЕ {@code NOT NULL}, поэтому отсутствие пользователя пишется как {@code NULL}
+ * (точно как делал подзапрос GriefLogger).
  */
 public final class GleEventsDao {
 
     private final GLDatabase db;
     private final WriteQueue queue;
+    private final IdCache ids;
 
-    public GleEventsDao(GLDatabase db, WriteQueue queue) {
+    public GleEventsDao(GLDatabase db, WriteQueue queue, IdCache ids) {
         this.db = db;
         this.queue = queue;
+        this.ids = ids;
     }
 
-    private String ignoreLevel() {
-        return (db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE") + " INTO levels(name) VALUES(?)";
+    private static void setNullableInt(PreparedStatement ps, int idx, @Nullable Integer v) throws SQLException {
+        if (v == null) ps.setNull(idx, Types.INTEGER);
+        else ps.setInt(idx, v);
     }
 
     // --- Таблички ---
@@ -31,16 +39,16 @@ public final class GleEventsDao {
                             String flags) {}
 
     public void insertSign(SignEntry e) {
-        final String lvl = ignoreLevel();
         final String sql = "INSERT INTO gle_signs(time, user, level, x, y, z, " +
                 "front_before, back_before, front_after, back_after, flags) " +
-                "VALUES(?, (SELECT id FROM users WHERE uuid=?), (SELECT id FROM levels WHERE name=?), ?,?,?, ?,?,?,?, ?)";
+                "VALUES(?, ?, ?, ?,?,?, ?,?,?,?, ?)";
         queue.submit(conn -> {
-            try (PreparedStatement l = conn.prepareStatement(lvl)) { l.setString(1, e.levelName()); l.executeUpdate(); }
+            Integer userId = ids.userId(conn, e.userUuid());
+            int levelId = ids.levelId(conn, e.levelName());
             try (PreparedStatement p = conn.prepareStatement(sql)) {
                 p.setLong(1, e.time());
-                p.setString(2, e.userUuid());
-                p.setString(3, e.levelName());
+                setNullableInt(p, 2, userId);
+                p.setInt(3, levelId);
                 p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
                 p.setString(7, e.frontBefore()); p.setString(8, e.backBefore());
                 p.setString(9, e.frontAfter()); p.setString(10, e.backAfter());
@@ -57,16 +65,16 @@ public final class GleEventsDao {
                                    String sourceType, @Nullable String extraData) {}
 
     public void insertWorldEntity(WorldEntityEntry e) {
-        final String lvl = ignoreLevel();
         final String sql = "INSERT INTO gle_world_entities(time, user, level, x, y, z, " +
                 "entity_type, entity_uuid, action, item, item_nbt, source_type, extra_data) " +
-                "VALUES(?, (SELECT id FROM users WHERE uuid=?), (SELECT id FROM levels WHERE name=?), ?,?,?, ?,?,?,?,?,?,?)";
+                "VALUES(?, ?, ?, ?,?,?, ?,?,?,?,?,?,?)";
         queue.submit(conn -> {
-            try (PreparedStatement l = conn.prepareStatement(lvl)) { l.setString(1, e.levelName()); l.executeUpdate(); }
+            Integer userId = ids.userId(conn, e.userUuid());
+            int levelId = ids.levelId(conn, e.levelName());
             try (PreparedStatement p = conn.prepareStatement(sql)) {
                 p.setLong(1, e.time());
-                p.setString(2, e.userUuid());
-                p.setString(3, e.levelName());
+                setNullableInt(p, 2, userId);
+                p.setInt(3, levelId);
                 p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
                 p.setString(7, e.entityType()); p.setString(8, e.entityUuid()); p.setString(9, e.action());
                 if (e.item() == null) p.setNull(10, Types.VARCHAR); else p.setString(10, e.item());
@@ -97,15 +105,14 @@ public final class GleEventsDao {
                                    String cause, byte @Nullable [] inventoryNbt) {}
 
     public void insertPlayerDeath(PlayerDeathEntry e) {
-        final String lvl = ignoreLevel();
         final String sql = "INSERT INTO gle_player_deaths(time, player_uuid, level, x, y, z, cause, inventory_nbt) " +
-                "VALUES(?, ?, (SELECT id FROM levels WHERE name=?), ?,?,?, ?, ?)";
+                "VALUES(?, ?, ?, ?,?,?, ?, ?)";
         queue.submit(conn -> {
-            try (PreparedStatement l = conn.prepareStatement(lvl)) { l.setString(1, e.levelName()); l.executeUpdate(); }
+            int levelId = ids.levelId(conn, e.levelName());
             try (PreparedStatement p = conn.prepareStatement(sql)) {
                 p.setLong(1, e.time());
                 p.setString(2, e.playerUuid());
-                p.setString(3, e.levelName());
+                p.setInt(3, levelId);
                 p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
                 p.setString(7, e.cause());
                 if (e.inventoryNbt() == null) p.setNull(8, Types.BLOB); else p.setBytes(8, e.inventoryNbt());
