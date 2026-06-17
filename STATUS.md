@@ -1,0 +1,128 @@
+# Состояние GoidaGriefLogger
+
+**Дата:** 17.06.2026
+**Версия:** 2.0.0 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
+**План:** `../GriefLoggerExtend/docs/06_Решение_единый_писатель.md` (Путь E)
+**Собирается:** да — `gradlew jar` → `build/libs/goidagrieflogger-2.0.0.jar`
+**Расположение:** `Z:/goidacraft/GoidaGriefLogger/` — отдельный каталог, **собственный git-репозиторий**.
+
+GoidaGriefLogger — это форк и **поглощение** GriefLogger (Путь E): один мод, одно соединение,
+один `WriteQueue` на все события. GriefLogger с сервера убирается; в `mods.toml` он помечен
+`incompatible`. Создан копированием GLE и правкой (не переписыванием).
+
+---
+
+## Что реализовано
+
+### Фаза 0 — фундамент единого writer'а
+- **Ребрендинг:** mod_id/имя/версия 2.0.0, лицензия Apache-2.0, файлы `LICENSE` + `NOTICE`
+  (атрибуция daqem по Apache-2.0). Java-пакет оставлен `com.gle.*` (минимум churn).
+- **Своя конфигурация хранилища:** `core/db/StorageSettings` (платформо-нейтральный) + секция
+  `[database]` в `GLEConfig`. Рефлексия-мост `GLConfigBridge` к конфигу GL **удалён** — мод
+  стал standalone, GL ему больше не нужен.
+- **Полная схема во владении мода:** `SchemaMigrator.createBaseTables()` создаёт все 11 базовых
+  таблиц GL (users/levels/materials/entities/usernames/blocks/containers/items/sessions/chats/
+  commands). DDL перенесён из репозиториев GL **дословно**, `IF NOT EXISTS` — существующая БД GL
+  полностью совместима. FK сохранены как у GL (в SQLite не форсируются, в MySQL форсируются — с
+  единым писателем дедлоков нет).
+- **Модульный каркас:** `platform/Platform` (граница «ядро↔загрузчик») + `NeoForgePlatform`;
+  `integration/ModIntegration` + `IntegrationRegistry` + модули `CreateIntegration`/`TomsIntegration`
+  (активируются по наличию modid на старте сервера).
+- **JVM shutdown hook** (Ошибка 3): дренаж очереди даже при крахе до `ServerStopping`.
+
+### Фаза 1 — все игровые события через единый writer
+Перенос логирования, которое раньше делал сам GriefLogger:
+
+| Событие | Реализация | Таблица / action |
+|---|---|---|
+| Вход/выход игрока | `SessionDao` + `SessionListener` | sessions JOIN=0/QUIT=1 (+ users/usernames) |
+| Слом/установка блока игроком | `PlayerBlockListener` | blocks BREAK=0/PLACE=1 |
+| Выброс/крафт/выплавка/съедание | `PlayerItemListener` | items DROP=2/CRAFT=4/CONSUME=6 |
+| Подбор предмета | `ItemPickupListener` (был в GLE) | items PICKUP=3 |
+| Бросок/выстрел | `ProjectileMixin` (+`AbstractArrowAccessor`) | items THROW=7/SHOOT=8 |
+| Поломка предмета от износа | `ItemDurabilityMixin` | items BREAK_ITEM=5 |
+| Убийство сущности игроком | `EntityKillListener` + `BlockLogDao.insertEntityKill` | blocks KILL=3 (type→entities) |
+| Чат / команды | `TextLogDao` + `ChatCommandListener` | chats / commands |
+| Транзакции контейнеров (ваниль+моды) | `ContainerTransactionListener` | containers REMOVE=0/ADD=1 |
+| Доступ к ванильным интерактивным блокам | `VanillaInteractables` + `VanillaInteractListener` | blocks INTERACT=2 |
+| Доступ к модовым хранилищам | `ContainerAccessListener` | blocks INTERACT=2 |
+| **Эндер-сундук** (улучшение поверх GL) | `EnderChestListener` | containers ADD_ENDER=9/REMOVE_ENDER=10 |
+
+Плюс не-игровые источники из GLE (взрывы, пистоны, хопперы, гравитация, моды, мобы, таблички,
+рамки, смерть игрока) — без изменений, уже идут через тот же writer.
+
+**Покрытие GL-событий — полное.** Из слушателей и миксинов GriefLogger ничего существенного
+не осталось неперенесённым.
+
+### Коммиты (ветка main репозитория GoidaGriefLogger)
+```
+76ff938  эндер-сундук и взаимодействия с ванильными блоками
+93eaaba  smelt, убийство сущностей, чат и команды
+4d317b8  миксин-порт throw/shoot/break предметов
+835b713  перенос слушателей предметов и контейнеров на единый writer
+fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + начало Фазы 1)
+```
+
+---
+
+## Что из плана ещё НЕ реализовано
+
+### Фаза 2 — оптимизация схемы под нагрузку (docs/06 §6, §8)
+- [ ] `DROP FOREIGN KEY` с blocks/containers/items/sessions (как у CoreProtect — ноль FK).
+- [ ] **In-memory кэши id** для materials/levels/users/entities — чтобы `INSERT` в справочники
+      шёл только при первом появлении (сейчас на каждое событие делается `INSERT IGNORE`
+      + подзапросы `SELECT id`). Это главный пункт оптимизации.
+- [ ] Append-only в горячем пути + ревизия композитных индексов `(level,x,z,time)`, `(user,time)`,
+      `(type,time)`.
+- [ ] Бенч на копии БД (цель: стабильность при 10M+ строк и пиковых bulk-событиях).
+
+### Модуляризация интеграций (docs/06 §1 Фаза 1, §9)
+- [ ] Перенести **обвязку** Create/Tom's/Backpacks в модули `integration/<mod>/` за `ModIntegration`.
+      Сейчас `CreateIntegration`/`TomsIntegration` — только точки учёта/гейта; сама логика
+      по-прежнему в `integration/CreateLogger`, `TomsTerminalLogger` и подключается миксинами
+      `mixin/create/*`, `mixin/toms/*` (self-activate через `require=0`). Нужно завести отдельные
+      mixin-конфиги на интеграцию и переселить листенеры под `onActivate()`.
+- [ ] Backpacks как отдельный модуль интеграции (сейчас покрывается общими listener'ами).
+
+### Чистота ядра (docs/06 §9 — правило «core без импортов loader/модов»)
+- [ ] `com.gle.core.*` ещё импортирует `net.minecraft.*` (допустимо) **и** `com.gle.GLEConfig`
+      (который тянет NeoForge `ModConfigSpec`). `BlockLogger`, `ItemLogger`, `GLESourceResolver`,
+      `NbtUtil` и др. не «чистые». Нужно развести: вынести конфиг-доступ за интерфейс ядра, чтобы
+      `core` зависел только от ванильных классов и чистой Java (требование для будущего Fabric).
+- [ ] `db/GLDatabase`, `WriteQueue`, DAO, `rollback/`, `command/` физически ещё в пакетах
+      `com.gle.db`/`com.gle.rollback`/`com.gle.command`, а не в `com.gle.core.*` (как в целевой
+      схеме §6). Сейчас они платформо-нейтральны по содержимому, но не переселены в `core/`.
+
+### Мелкие фиксы (docs/06 §8)
+- [ ] **#1 refmap в jar** (`goidagrieflogger.refmap.json`). На NeoForge 1.21 рантайм Mojmap →
+      функционально не критично, убирает WARN; **для будущего Fabric обязательно**.
+- [ ] **Бандлинг JDBC-драйверов** в проде. GL раньше вёз sqlite-jdbc; теперь его нет. Сейчас
+      драйверы только `compileOnly`+`localRuntime` (dev). Для прода: MySQL-коннектор ставится
+      отдельно (как и раньше), а sqlite-jdbc нужно положить в classpath **или** забандлить через
+      jarJar (теперь безопасно — конфликт был только с sqlite от GL, а GL удалён).
+
+### Fabric (docs/06 §9)
+- [ ] СЕЙЧАС НЕ ДЕЛАЕМ намеренно. Каркас (`Platform`/`ModIntegration`) заложен, чтобы дописать
+      потом без правки ядра. Требует: реализацию `Platform` для Fabric, Fabric-варианты мод-модулей,
+      перевод прав/capability. Зависит от пункта «чистота ядра».
+
+### Cutover и проверка (docs/06 §10, §12)
+- [ ] **Рантайм не проверялся на dev-сервере.** Компиляция и сборка jar зелёные, но применимость
+      миксинов (`ProjectileMixin`, `ItemDurabilityMixin`, `AbstractArrowAccessor`) и работа всех
+      новых листенеров на живом сервере **не верифицированы**. Нужен прогон dev-сервера + проверка
+      `/gl search`/`rollback` на свежих и старых записях.
+- [ ] Cutover-чеклист (§10): бэкап БД → стоп сервера → убрать `grieflogger.jar` → поставить
+      `goidagrieflogger.jar` → старт → проверка lookup/rollback. Держать старый GL.jar для отката.
+
+---
+
+## Известные осознанные решения
+- **Эндер-сундук:** GL объявлял коды ADD_ENDER/REMOVE_ENDER, но НЕ логировал их. Реализовано как
+  улучшение поверх GL (снимок личного эндер-инвентаря open→close).
+- **Имя сущности в kill-строках** хранится С префиксом `minecraft:` (как у GL), в отличие от
+  материалов (без префикса).
+- **Взаимодействия с блоками** портированы дословно из `BlockHandler.isBlockIntractable` (точный
+  набор классов, не эвристика). `ContainerAccessListener` откатан к модовым блокам, чтобы не
+  дублировать ваниль.
+- **FK НЕ снимаются в Фазе 1** — схема сохранена идентичной GL ради совместимости старой БД;
+  снятие FK — отдельный шаг Фазы 2.
