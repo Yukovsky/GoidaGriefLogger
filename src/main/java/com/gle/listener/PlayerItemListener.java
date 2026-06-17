@@ -1,26 +1,15 @@
 package com.gle.listener;
 
-import com.gle.GLEConfig;
 import com.gle.core.GLActions;
-import com.gle.core.GLMaterials;
-import com.gle.core.ItemData;
-import com.gle.db.ContainerLogDao;
-import com.gle.db.GLStorage;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
+import com.gle.core.ItemLogger;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.entity.item.ItemTossEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-
-import java.util.List;
 
 /**
  * Действия игрока с предметами «в руках/на земле» — выброс, крафт, съедание — в таблицу {@code items}.
@@ -57,38 +46,6 @@ public final class PlayerItemListener {
 
     private static void log(ServerPlayer player, ItemStack stack, int action) {
         if (player instanceof FakePlayer) return;
-        if (!GLStorage.isReady()) return;
-        if (stack == null || stack.isEmpty()) return;
-        if (!(player.level() instanceof ServerLevel level)) return;
-
-        String dimension = level.dimension().location().toString();
-        if (contains(GLEConfig.worldBlacklist.get(), dimension)) return;
-
-        ResourceLocation itemKey = BuiltInRegistries.ITEM.getKey(stack.getItem());
-        String material = GLMaterials.normalize(itemKey);
-        if (contains(GLEConfig.blockBlacklist.get(), material)) return;
-        if (itemKey != null && contains(GLEConfig.modBlacklist.get(), itemKey.getNamespace())) return;
-
-        byte[] data;
-        try {
-            data = ItemData.serialize(stack, level.registryAccess());
-        } catch (Exception e) {
-            data = null;
-        }
-
-        BlockPos pos = player.blockPosition();
-        GLStorage.get().containers().insertItem(new ContainerLogDao.ContainerEntry(
-                System.currentTimeMillis(),
-                player.getUUID().toString(),
-                dimension,
-                pos.getX(), pos.getY(), pos.getZ(),
-                material,
-                data,
-                stack.getCount(),
-                action));
-    }
-
-    private static boolean contains(List<? extends String> list, String value) {
-        return list != null && list.contains(value);
+        ItemLogger.logPlayerItem(player, stack, action);
     }
 }
