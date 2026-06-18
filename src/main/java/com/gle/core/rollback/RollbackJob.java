@@ -1,10 +1,14 @@
 package com.gle.core.rollback;
 
 import com.gle.GLEConfig;
+import com.gle.core.GLActions;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.function.Consumer;
 
 /**
@@ -35,6 +39,15 @@ public final class RollbackJob {
     private boolean aborted = false;
     private boolean done = false;
 
+    /**
+     * Позиции (asLong), где откат слома контейнера уже восстановил содержимое из NBT-снимка.
+     * Для них дельты {@code containers} НЕ применяем — снимок = точное состояние на момент слома,
+     * а дельты привели бы к двойному учёту предметов. Все блоки применяются до предметов
+     * (второй цикл стартует лишь после исчерпания первого), поэтому к обработке предметов
+     * множество уже заполнено.
+     */
+    private final Set<Long> snapshotRestored = new HashSet<>();
+
     public RollbackJob(long jobId, boolean reverse, ServerLevel level,
                        List<RollbackData.BlockChange> blocks, List<RollbackData.ItemChange> items,
                        Consumer<Component> feedback, Completion completion) {
@@ -59,13 +72,21 @@ public final class RollbackJob {
         int budget = GLEConfig.batchSize.get();
         while (budget > 0 && blockIdx < blocks.size()) {
             RollbackData.BlockChange ch = blocks.get(blockIdx++);
-            if (BlockRestorer.apply(level, ch, reverse)) affectedBlocks++; else failed++;
+            if (BlockRestorer.apply(level, ch, reverse)) {
+                affectedBlocks++;
+                // Откат слома контейнера со снимком NBT уже точно восстановил его содержимое.
+                if (reverse && ch.action() == GLActions.BREAK_BLOCK && ch.nbt() != null) {
+                    snapshotRestored.add(new BlockPos(ch.x(), ch.y(), ch.z()).asLong());
+                }
+            } else failed++;
             budget--;
         }
         while (budget > 0 && itemIdx < items.size()) {
             RollbackData.ItemChange ch = items.get(itemIdx++);
-            if (ItemRestorer.apply(level, ch, reverse)) affectedContainers++; else failed++;
             budget--;
+            // Содержимое этой позиции уже восстановлено снимком блока — дельту не применяем (без двойного учёта).
+            if (reverse && snapshotRestored.contains(new BlockPos(ch.x(), ch.y(), ch.z()).asLong())) continue;
+            if (ItemRestorer.apply(level, ch, reverse)) affectedContainers++; else failed++;
         }
 
         if (++tickCounter % GLEConfig.progressIntervalTicks.get() == 0) {

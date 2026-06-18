@@ -38,7 +38,8 @@ public final class ItemRestorer {
         ItemStack stack = reconstruct(level, change);
         if (stack.isEmpty()) return false;
 
-        boolean wasAdd = change.action() == GLActions.ADD_ITEM || change.action() == GLActions.PICKUP_ITEM;
+        // containers содержит только ADD_ITEM/REMOVE_ITEM (PICKUP пишется в таблицу items и сюда не выбирается).
+        boolean wasAdd = change.action() == GLActions.ADD_ITEM;
         // откат: добавление → убрать, изъятие → вернуть. restore: наоборот.
         boolean removeNow = reverse == wasAdd;
         return removeNow ? removeMatching(container, stack, change.amount()) : insert(container, stack);
