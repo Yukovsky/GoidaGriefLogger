@@ -25,7 +25,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
- * Команда {@code /gl}: rollback / restore / preview / abort / status / help.
+ * Команда {@code /gl}: lookup / rollback / restore / preview / abort / status / help.
  * Op level 2 (restore чужих — level 3). Поддерживает фильтры в стиле CoreProtect и
  * автодополнение (Tab).
  */
@@ -69,15 +69,15 @@ public final class GLCommand {
                         .then(Commands.argument("args", StringArgumentType.greedyString())
                                 .suggests(filterSuggest)
                                 .executes(ctx -> doRestore(ctx, StringArgumentType.getString(ctx, "args")))))
-                .then(Commands.literal("search")
+                .then(Commands.literal("lookup")
                         .requires(GLEPermissions::canLookup)
                         .then(Commands.argument("args", StringArgumentType.greedyString())
                                 .suggests(filterSuggest)
-                                .executes(ctx -> doSearch(ctx, StringArgumentType.getString(ctx, "args")))))
-                .then(Commands.literal("spage")
+                                .executes(ctx -> doLookup(ctx, StringArgumentType.getString(ctx, "args")))))
+                .then(Commands.literal("page")
                         .requires(GLEPermissions::canLookup)
                         .then(Commands.argument("n", IntegerArgumentType.integer(1))
-                                .executes(ctx -> doSearchPage(ctx, IntegerArgumentType.getInteger(ctx, "n")))))
+                                .executes(ctx -> doLookupPage(ctx, IntegerArgumentType.getInteger(ctx, "n")))))
                 .then(Commands.literal("abort")
                         .requires(GLEPermissions::canAbort)
                         .executes(GLCommand::doAbort))
@@ -171,6 +171,14 @@ public final class GLCommand {
             src.sendFailure(Component.literal("§cpreview не поддерживает world:* — укажите конкретный мир."));
             return 0;
         }
+        // Preview шлёт клиентские пакеты блоков игроку в его ТЕКУЩЕМ мире. Если указан другой мир —
+        // пакеты легли бы на чужие координаты в текущем измерении (визуальный мусор). Запрещаем.
+        String curDim = player.level().dimension().location().toString();
+        if (!f.levelName.equals(curDim)) {
+            src.sendFailure(Component.literal("§cpreview работает только в текущем мире (вы в " + curDim
+                    + ", указан " + f.levelName + "). Перейдите в нужный мир или используйте /gl rollback."));
+            return 0;
+        }
         PreviewManager.get().start(player, f, msg -> src.sendSystemMessage(msg));
         return 1;
     }
@@ -199,17 +207,17 @@ public final class GLCommand {
     }
 
     /** Lookup в стиле CoreProtect (откатанные записи — зачёркнуты). */
-    private static int doSearch(CommandContext<CommandSourceStack> ctx, String args) {
+    private static int doLookup(CommandContext<CommandSourceStack> ctx, String args) {
         CommandSourceStack src = ctx.getSource();
         ServerPlayer player = src.getPlayer();
         if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
         RollbackFilter f = parseFilter(args, player);
-        if (f == null) { usageError(src, "search"); return 0; }
+        if (f == null) { usageError(src, "lookup"); return 0; }
         LookupService.run(src.getServer(), f, player);
         return 1;
     }
 
-    private static int doSearchPage(CommandContext<CommandSourceStack> ctx, int n) {
+    private static int doLookupPage(CommandContext<CommandSourceStack> ctx, int n) {
         ServerPlayer player = ctx.getSource().getPlayer();
         if (player == null) { ctx.getSource().sendFailure(Component.literal("Только для игрока.")); return 0; }
         LookupService.showPage(player, n - 1);
@@ -238,7 +246,7 @@ public final class GLCommand {
         s.sendSystemMessage(Component.literal("§6=== GLE / GLRA — откат изменений ==="));
         s.sendSystemMessage(Component.literal("§e/gl rollback <фильтры>§7 — откатить изменения"));
         s.sendSystemMessage(Component.literal("§e/gl restore <фильтры>§7 — вернуть откатанное (те же фильтры, как в CoreProtect)"));
-        s.sendSystemMessage(Component.literal("§e/gl search <фильтры>§7 — история (откатанное §mзачёркнуто§r§7)"));
+        s.sendSystemMessage(Component.literal("§e/gl lookup <фильтры>§7 — история (откатанное §mзачёркнуто§r§7); §e/gl page <n>§7 — страница"));
         s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview cancel"));
         s.sendSystemMessage(Component.literal("§e/gl abort§7 — стоп активного задания; §e/gl status"));
         s.sendSystemMessage(Component.literal("§6Фильтры §7(можно полные и краткие имена):"));

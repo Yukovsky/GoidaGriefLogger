@@ -20,7 +20,7 @@ import java.util.Optional;
  * <ul>
  *   <li>{@code gle.rollback} — /gl rollback</li>
  *   <li>{@code gle.restore} — /gl restore</li>
- *   <li>{@code gle.lookup} — /gl search и /gl spage (просмотр истории)</li>
+ *   <li>{@code gle.lookup} — /gl lookup и /gl page (просмотр истории)</li>
  *   <li>{@code gle.preview} — /gl preview [cancel]</li>
  *   <li>{@code gle.abort} — /gl abort</li>
  *   <li>{@code gle.status} — /gl status</li>

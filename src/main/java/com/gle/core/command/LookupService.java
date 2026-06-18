@@ -72,11 +72,11 @@ public final class LookupService {
         });
     }
 
-    /** Показать страницу сохранённого результата (вызывается из /gl spage). */
+    /** Показать страницу сохранённого результата (вызывается из /gl page). */
     public static void showPage(ServerPlayer player, int page) {
         List<Component> lines = LAST.get(player.getUUID());
         if (lines == null || lines.isEmpty()) {
-            player.sendSystemMessage(Component.literal("§7[GLE] Нет результатов. Сначала /gl search <фильтры>."));
+            player.sendSystemMessage(Component.literal("§7[GLE] Нет результатов. Сначала /gl lookup <фильтры>."));
             return;
         }
         int totalPages = (lines.size() + PAGE_SIZE - 1) / PAGE_SIZE;
@@ -95,10 +95,10 @@ public final class LookupService {
     private static MutableComponent nav(int page, int totalPages) {
         MutableComponent prev = Component.literal(page > 0 ? "§b[◀ Назад]" : "§8[◀ Назад]");
         if (page > 0) prev = prev.withStyle(s -> s.withClickEvent(
-                new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/gl spage " + page)));
+                new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/gl page " + page)));
         MutableComponent next = Component.literal(page + 1 < totalPages ? "§b[Вперёд ▶]" : "§8[Вперёд ▶]");
         if (page + 1 < totalPages) next = next.withStyle(s -> s.withClickEvent(
-                new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/gl spage " + (page + 2))));
+                new ClickEvent(ClickEvent.Action.RUN_COMMAND, "/gl page " + (page + 2))));
         return Component.literal("").append(prev).append(Component.literal("  ")).append(next);
     }
 

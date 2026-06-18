@@ -27,7 +27,7 @@ public final class RollbackFilter {
 
     /** Радиус «global» — без пространственных границ (бокс раскрыт на весь диапазон). */
     public boolean globalRadius = false;
-    /** Все измерения — без фильтра по уровню (для search; для rollback раскрывается в задание на мир). */
+    /** Все измерения — без фильтра по уровню (для lookup; для rollback раскрывается в задание на мир). */
     public boolean allWorlds = false;
 
     /** Фильтр по source_type (например "tnt", "create:deployer"); null = любой. */

@@ -165,12 +165,12 @@ public final class RollbackManager {
     public static String translateDbError(Exception e) {
         String msg = String.valueOf(e.getMessage()).toLowerCase();
         if (msg.contains("no such table") || msg.contains("doesn't exist") || msg.contains("does not exist")) {
-            return "БД не инициализирована или открыт не тот файл: таблицы GriefLogger не найдены. "
-                    + "Убедитесь, что GriefLogger создал базу, и не запущен сторонний аддон GLRA со своим конфигом БД "
-                    + "(GLE наследует подключение GriefLogger автоматически).";
+            return "БД не инициализирована: таблицы логов не найдены. Схема создаётся автоматически при старте "
+                    + "сервера — проверьте, что хранилище подключилось (см. лог) и в конфиге [database] указан "
+                    + "правильный файл/база.";
         }
         if (msg.contains("no such column") || msg.contains("unknown column")) {
-            return "В таблицах нет колонок GLE — перезапустите сервер, миграция применится при старте.";
+            return "В таблицах нет нужных колонок — перезапустите сервер, миграция схемы применится при старте.";
         }
         return "Ошибка БД: " + e.getMessage();
     }

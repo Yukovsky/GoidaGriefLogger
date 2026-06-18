@@ -249,10 +249,10 @@ public final class SchemaMigrator {
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ") + "idx_rj_status ON rollback_jobs(status, started_at)");
     }
 
-    // --- 2b. Индексы для /gl search -------------------------------------------
+    // --- 2b. Индексы для /gl lookup -------------------------------------------
 
     /**
-     * Индексы под реальные запросы lookup ({@code /gl search}) и rollback ({@link com.gle.core.command.LookupService},
+     * Индексы под реальные запросы lookup ({@code /gl lookup}) и rollback ({@link com.gle.core.command.LookupService},
      * {@code RollbackData}). Доминирующая форма запроса: {@code level=? AND time BETWEEN ? AND ?
      * AND x/y/z BETWEEN ? AND ?} с {@code ORDER BY time DESC}, опционально {@code AND user=?}.
      * GL для своих таблиц индексов не создавал — каждый поиск был полным сканом.
