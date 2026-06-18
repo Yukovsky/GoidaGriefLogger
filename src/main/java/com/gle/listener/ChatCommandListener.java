@@ -1,7 +1,7 @@
 package com.gle.listener;
 
-import com.gle.db.GLStorage;
-import com.gle.db.TextLogDao;
+import com.gle.core.db.GLStorage;
+import com.gle.core.db.TextLogDao;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;

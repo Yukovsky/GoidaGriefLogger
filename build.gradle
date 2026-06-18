@@ -59,14 +59,21 @@ configurations {
 
 dependencies {
     // JDBC-драйверы. GoidaGriefLogger — standalone (GriefLogger удалён), поэтому драйверы он
-    // больше НЕ наследует от GL. Компилируемся против драйвера; в dev даём через localRuntime.
-    // В проде:
-    //   - MySQL: connector ставится в окружение сервера отдельно (как и раньше);
-    //   - SQLite: положить sqlite-jdbc в classpath/моды (раньше его давал GL).
-    // Бандлинг через jarJar теперь безопасен (конфликт был только с sqlite, который вёз GL) —
-    // отложено на этап cutover, чтобы не трогать рабочую сборку.
+    // больше НЕ наследует от GL.
+    //
+    // SQLite: бандлим в прод-jar через jarJar (NeoForge извлекает и кладёт в classpath на старте).
+    //   Раньше sqlite-jdbc вёз GL; конфликт был только с тем экземпляром, GL удалён → бандлить
+    //   теперь безопасно. compileOnly — для компиляции; localRuntime — для dev-запусков (dev не
+    //   грузит из упакованного jar, поэтому jarJar в dev не извлекается).
+    // MySQL: connector ставится в окружение сервера отдельно (как и раньше) — НЕ бандлим.
     compileOnly "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
     localRuntime "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
+    jarJar("org.xerial:sqlite-jdbc") {
+        version {
+            strictly "[${sqlite_jdbc_version},4.0.0)"
+            prefer "${sqlite_jdbc_version}"
+        }
+    }
 
     compileOnly "com.mysql:mysql-connector-j:${mysql_connector_version}"
     localRuntime "com.mysql:mysql-connector-j:${mysql_connector_version}"

@@ -61,8 +61,10 @@ public final class GLEConfig {
     public static final ModConfigSpec.IntValue maxPreviewDurationSec;
     public static final ModConfigSpec.IntValue previewAutoCancelBlocks;
 
-    // [integrations.create]
+    // [integrations.create] / [integrations.toms] / [integrations.backpacks]
     public static final ModConfigSpec.BooleanValue enableCreateIntegration;
+    public static final ModConfigSpec.BooleanValue enableTomsIntegration;
+    public static final ModConfigSpec.BooleanValue enableBackpacksIntegration;
     // [integrations] universal item tracking (опционально, экспериментально)
     public static final ModConfigSpec.BooleanValue universalItemTracking;
 
@@ -150,6 +152,17 @@ public final class GLEConfig {
                 .define("universalItemTracking", false);
         b.push("create");
         enableCreateIntegration = b.comment("Логировать изменения блоков от Create (контрапции, схематическая пушка)")
+                .define("enabled", true);
+        b.pop();
+        b.push("toms");
+        enableTomsIntegration = b.comment("Атрибутировать перемещения через терминалы Tom's Simple Storage реальному игроку",
+                "(иначе они попадут в историю только как [AUTO] через универсальный трекинг).")
+                .define("enabled", true);
+        b.pop();
+        b.push("backpacks");
+        enableBackpacksIntegration = b.comment("Учитывать Sophisticated Backpacks как отдельную интеграцию.",
+                "Покрытие поставленных рюкзаков-блоков идёт через universal/container tracking;",
+                "флаг включает явную регистрацию модуля и его лог при старте.")
                 .define("enabled", true);
         b.pop(2);
 

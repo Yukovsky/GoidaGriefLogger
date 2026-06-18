@@ -1,8 +1,8 @@
 package com.gle.listener;
 
 import com.gle.core.GLActions;
-import com.gle.db.GLStorage;
-import com.gle.db.SessionDao;
+import com.gle.core.db.GLStorage;
+import com.gle.core.db.SessionDao;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.SubscribeEvent;

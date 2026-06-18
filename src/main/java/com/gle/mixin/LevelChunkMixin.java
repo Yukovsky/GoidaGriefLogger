@@ -3,9 +3,7 @@ package com.gle.mixin;
 import com.gle.core.BlockLogger;
 import com.gle.core.GLActions;
 import com.gle.core.GLESourceResolver;
-import com.gle.integration.CreateContext;
-import com.gle.integration.CreateLogger;
-import com.gle.integration.GriefContext;
+import com.gle.core.GriefContext;
 import com.gle.listener.EnvironmentLogger;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
@@ -34,17 +32,14 @@ public abstract class LevelChunkMixin {
     )
     private void gle$onSetBlockState(BlockPos pos, BlockState state, boolean isMoving,
                                      CallbackInfoReturnable<BlockState> cir) {
-        boolean create = CreateContext.isActive();
         GriefContext.Attribution grief = GriefContext.current();
         Entity mob = grief == null ? GriefContext.entity() : null;
-        if (!create && grief == null && mob == null && !EnvironmentLogger.anyEnabled()) return;
+        if (grief == null && mob == null && !EnvironmentLogger.anyEnabled()) return;
         LevelChunk self = (LevelChunk) (Object) this;
         if (!(self.getLevel() instanceof ServerLevel level)) return;
         BlockState old = self.getBlockState(pos);
         if (old.getBlock() == state.getBlock()) return;
-        if (create) {
-            CreateLogger.consider(level, pos.immutable(), old, state, CreateContext.current());
-        } else if (grief != null) {
+        if (grief != null) {
             gle$logGrief(level, pos.immutable(), old, state, grief.sourceType(), grief.systemUser());
         } else if (mob != null) {
             GLESourceResolver.Resolved src = GLESourceResolver.resolve(mob);

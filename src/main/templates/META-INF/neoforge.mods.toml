@@ -12,9 +12,16 @@ description = '''
 ${mod_description}
 '''
 
-# Mixin-конфигурация
+# Mixin-конфигурация — ядро + по одному конфигу на интеграцию (docs/06 §9).
+# Мод-специфичные миксины внутри помечены require=0/remap=false → отсутствие мода даёт no-op, не краш.
 [[mixins]]
 config = "gle.mixins.json"
+
+[[mixins]]
+config = "gle.create.mixins.json"
+
+[[mixins]]
+config = "gle.toms.mixins.json"
 
 # --- Зависимости ---
 
@@ -47,6 +54,22 @@ side = "BOTH"
 # Create — опциональная интеграция, грузимся после если присутствует
 [[dependencies.${mod_id}]]
 modId = "create"
+type = "optional"
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"
+
+# Tom's Simple Storage — опциональная интеграция
+[[dependencies.${mod_id}]]
+modId = "toms_storage"
+type = "optional"
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"
+
+# Sophisticated Backpacks — опциональная интеграция
+[[dependencies.${mod_id}]]
+modId = "sophisticatedbackpacks"
 type = "optional"
 versionRange = "*"
 ordering = "AFTER"

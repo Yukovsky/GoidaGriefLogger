@@ -1,7 +1,7 @@
 package com.gle.core;
 
-import com.gle.db.BlockLogDao;
-import com.gle.db.GLStorage;
+import com.gle.core.db.BlockLogDao;
+import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;

@@ -2,12 +2,13 @@ package com.gle;
 
 import com.gle.api.GLExtended;
 import com.gle.api.GLExtendedApiImpl;
-import com.gle.command.GLCommand;
+import com.gle.core.command.GLCommand;
 import com.gle.core.CoreConfig;
-import com.gle.db.GLStorage;
-import com.gle.integration.CreateIntegration;
+import com.gle.core.db.GLStorage;
 import com.gle.integration.IntegrationRegistry;
-import com.gle.integration.TomsIntegration;
+import com.gle.integration.backpacks.BackpacksIntegration;
+import com.gle.integration.create.CreateIntegration;
+import com.gle.integration.toms.TomsIntegration;
 import com.gle.listener.ChatCommandListener;
 import com.gle.listener.ContainerAccessListener;
 import com.gle.listener.ContainerTransactionListener;
@@ -25,8 +26,8 @@ import com.gle.listener.SessionListener;
 import com.gle.listener.VanillaInteractListener;
 import com.gle.platform.Platform;
 import com.gle.platform.neoforge.NeoForgePlatform;
-import com.gle.rollback.PreviewManager;
-import com.gle.rollback.RollbackManager;
+import com.gle.core.rollback.PreviewManager;
+import com.gle.core.rollback.RollbackManager;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.ModContainer;
@@ -94,7 +95,8 @@ public final class GLE {
 
         // Подключаемые модули интеграций (активируются по наличию modid на старте сервера)
         integrations.register(new CreateIntegration())
-                    .register(new TomsIntegration());
+                    .register(new TomsIntegration())
+                    .register(new BackpacksIntegration());
 
         LOGGER.info("GoidaGriefLogger загружен. Ожидание старта сервера для подключения к БД.");
     }

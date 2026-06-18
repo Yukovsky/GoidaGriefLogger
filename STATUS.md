@@ -96,12 +96,25 @@ fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + на
       ниже); из кода не выполняется. Делать на cutover вместе с прогоном dev-сервера.
 
 ### Модуляризация интеграций (docs/06 §1 Фаза 1, §9)
-- [ ] Перенести **обвязку** Create/Tom's/Backpacks в модули `integration/<mod>/` за `ModIntegration`.
-      Сейчас `CreateIntegration`/`TomsIntegration` — только точки учёта/гейта; сама логика
-      по-прежнему в `integration/CreateLogger`, `TomsTerminalLogger` и подключается миксинами
-      `mixin/create/*`, `mixin/toms/*` (self-activate через `require=0`). Нужно завести отдельные
-      mixin-конфиги на интеграцию и переселить листенеры под `onActivate()`.
-- [ ] Backpacks как отдельный модуль интеграции (сейчас покрывается общими listener'ами).
+- [x] **Обвязка Create/Tom's переселена в `integration/<mod>/`** за `ModIntegration`:
+      - `integration/create/` — `CreateIntegration`, `CreateItemLogger`, миксины `create/mixin/*`;
+      - `integration/toms/` — `TomsIntegration`, `TomsContext`, `TomsTerminalLogger`, миксины `toms/mixin/*`.
+      Generic-инфраструктура (`AutomationItemLogger` + обёртки `IItemHandler`) осталась в корне
+      `integration/` — это не мод-специфика, а универсальный capability-трекинг.
+- [x] **Отдельный mixin-конфиг на интеграцию.** `gle.create.mixins.json` (пакет
+      `com.gle.integration.create.mixin`) и `gle.toms.mixins.json` (`…toms.mixin`); ядро в
+      `gle.mixins.json` больше не содержит `create.*`/`toms.*`. Все три зарегистрированы в `mods.toml`,
+      добавлены optional-зависимости `create`/`toms_storage`/`sophisticatedbackpacks`. Мод-миксины —
+      `require=0`/`remap=false` → отсутствие мода даёт no-op (§9). Флаги: `integrations.toms.enabled`
+      (новый), `integrations.create.enabled`.
+- [x] **Ядро отвязано от Create.** `CreateContext`/`CreateLogger` удалены; контрапции и пушка теперь
+      кладут атрибуцию в ядро-нейтральный `core/GriefContext` (`create:contraption`/`create:schematicannon`,
+      пользователь `[CREATE]`), а `LevelChunkMixin` (в ядровом конфиге) логирует её общим grief-путём —
+      без единого импорта Create. `GriefContext` переехал `integration/`→`core/` (он мод-/платформо-нейтрален).
+- [x] **Backpacks — отдельный модуль** `integration/backpacks/BackpacksIntegration` (флаг
+      `integrations.backpacks.enabled`). Своих миксинов нет: поставленные рюкзаки-блоки покрыты
+      универсальным capability/контейнерным трекингом; модуль делает интеграцию явной (присутствие+гейт+лог).
+      Остаётся: рюкзак, открытый из инвентаря (не блоком), требует отдельного миксина на меню — будущая работа.
 
 ### Чистота ядра (docs/06 §9 — правило «core без импортов loader/модов»)
 - [x] **Убраны импорты NeoForge/конфига из `com.gle.core.*`.** Протечки были две: `com.gle.GLEConfig`
@@ -115,18 +128,23 @@ fde3825  v2.0.0: форк и поглощение GriefLogger (Фаза 0 + на
       Проверено grep'ом: в `core/` не осталось импортов `net.neoforged`/`net.fabricmc`/`GLEConfig`/
       мод-классов. Остаточные не-ванильные импорты — `com.gle.db.*` (нейтральны, см. ниже) и
       `io.netty` (часть ваниль-рантайма, есть и на Fabric) — это НЕ протечки загрузчика.
-- [ ] `db/GLDatabase`, `WriteQueue`, DAO, `rollback/`, `command/` физически ещё в пакетах
-      `com.gle.db`/`com.gle.rollback`/`com.gle.command`, а не в `com.gle.core.*` (как в целевой
-      схеме §6). Платформо-нейтральны по содержимому (теперь и `core/` от них зависит без протечки),
-      но не переселены — чисто механический move пакетов, отдельный шаг.
+- [x] **`db/`, `rollback/`, `command/` переселены в `com.gle.core.*`** (целевая схема §6):
+      `com.gle.core.db` (GLDatabase/WriteQueue/DAO/SchemaMigrator/GLStorage — рядом с уже бывшими там
+      IdCache/StorageSettings), `com.gle.core.rollback`, `com.gle.core.command`. Чисто механический
+      move пакетов + правка package/import; компилируется, jar собирается.
 
 ### Мелкие фиксы (docs/06 §8)
-- [ ] **#1 refmap в jar** (`goidagrieflogger.refmap.json`). На NeoForge 1.21 рантайм Mojmap →
-      функционально не критично, убирает WARN; **для будущего Fabric обязательно**.
-- [ ] **Бандлинг JDBC-драйверов** в проде. GL раньше вёз sqlite-jdbc; теперь его нет. Сейчас
-      драйверы только `compileOnly`+`localRuntime` (dev). Для прода: MySQL-коннектор ставится
-      отдельно (как и раньше), а sqlite-jdbc нужно положить в classpath **или** забандлить через
-      jarJar (теперь безопасно — конфликт был только с sqlite от GL, а GL удалён).
+- [x] **#1 refmap в jar** (`goidagrieflogger.refmap.json`) — лежит в jar, mixin-конфиги на него
+      ссылаются → WARN «refmap could not be read» снят. ВАЖНО: на NeoForge/Mojmap AP-генерация
+      refmap невозможна (нет SRG-маппингов — sponge-mixin AP падает «Unable to locate obfuscation
+      mapping»; именно поэтому MDG даёт mixin-refmap только под legacyforge). Поэтому это **статический
+      пустой identity-refmap** (`{"mappings":{},"data":{"named:intermediary":{}}}`) — корректно для
+      Mojmap (ремап не нужен). Для Fabric реальный refmap сгенерит Loom в Fabric-сборке (имя уже
+      зарезервировано), отсюда он не переносится.
+- [x] **Бандлинг sqlite-jdbc через jarJar** — `META-INF/jarjar/sqlite-jdbc-3.47.2.0.jar`, диапазон
+      `[3.47.2.0,4.0.0)`; NeoForge извлекает в classpath на старте. MySQL-коннектор по-прежнему
+      ставится в окружение сервера отдельно (не бандлим). Dev: `compileOnly`+`localRuntime` (jarJar в
+      dev не извлекается, т.к. dev не грузит из упакованного jar).
 
 ### Fabric (docs/06 §9)
 - [ ] СЕЙЧАС НЕ ДЕЛАЕМ намеренно. Каркас (`Platform`/`ModIntegration`) заложен, чтобы дописать

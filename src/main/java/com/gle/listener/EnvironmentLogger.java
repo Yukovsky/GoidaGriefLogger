@@ -5,7 +5,7 @@ import com.gle.core.BlockLogger;
 import com.gle.core.GLActions;
 import com.gle.core.SourceType;
 import com.gle.core.SystemUsers;
-import com.gle.db.GLStorage;
+import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.FluidTags;

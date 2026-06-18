@@ -1,6 +1,6 @@
 package com.gle.listener;
 
-import com.gle.db.GLStorage;
+import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;

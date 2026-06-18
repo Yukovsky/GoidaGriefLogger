@@ -1,7 +1,7 @@
 package com.gle.mixin;
 
 import com.gle.GLEConfig;
-import com.gle.integration.GriefContext;
+import com.gle.core.GriefContext;
 import net.minecraft.world.entity.Mob;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;

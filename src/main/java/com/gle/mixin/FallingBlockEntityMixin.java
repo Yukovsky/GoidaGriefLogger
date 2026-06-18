@@ -1,9 +1,9 @@
 package com.gle.mixin;
 
 import com.gle.GLEConfig;
+import com.gle.core.GriefContext;
 import com.gle.core.SourceType;
 import com.gle.core.SystemUsers;
-import com.gle.integration.GriefContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.level.Level;

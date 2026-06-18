@@ -1,8 +1,8 @@
 package com.gle.mixin;
 
 import com.gle.GLEConfig;
-import com.gle.db.GLStorage;
-import com.gle.db.GleEventsDao;
+import com.gle.core.db.GLStorage;
+import com.gle.core.db.GleEventsDao;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.network.FilteredText;

@@ -3,7 +3,7 @@
   "minVersion": "0.8.5",
   "package": "com.gle.mixin",
   "compatibilityLevel": "JAVA_21",
-  "refmap": "gle.refmap.json",
+  "refmap": "goidagrieflogger.refmap.json",
   "mixins": [
     "HopperBlockEntityMixin",
     "SignBlockEntityMixin",
@@ -16,12 +16,7 @@
     "BlockCapabilityMixin",
     "ProjectileMixin",
     "ItemDurabilityMixin",
-    "AbstractArrowAccessor",
-    "create.ContraptionMixin",
-    "create.LaunchedItemMixin",
-    "create.ArmInteractionPointMixin",
-    "toms.StorageTerminalMenuMixin",
-    "toms.StorageTerminalBlockEntityMixin"
+    "AbstractArrowAccessor"
   ],
   "client": [],
   "injectors": {

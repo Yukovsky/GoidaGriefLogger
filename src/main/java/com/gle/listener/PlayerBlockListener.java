@@ -4,7 +4,7 @@ import com.gle.GLEConfig;
 import com.gle.core.BlockLogger;
 import com.gle.core.GLActions;
 import com.gle.core.NbtUtil;
-import com.gle.db.GLStorage;
+import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
