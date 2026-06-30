@@ -15,7 +15,10 @@ public final class RollbackFilter {
     public String levelName;       // dimension ResourceLocation (с minecraft:)
 
     @Nullable public UUID playerUuid;
-    @Nullable public String playerName;
+    /** Включить только этих игроков ({@code u:Имя}, можно несколько); пусто = все. */
+    public final java.util.List<String> playerNames = new java.util.ArrayList<>();
+    /** Исключить этих игроков ({@code u:!Имя}, можно несколько); пусто = никого не исключать. */
+    public final java.util.List<String> excludePlayerNames = new java.util.ArrayList<>();
 
     public int minX, minY, minZ;
     public int maxX, maxY, maxZ;
@@ -36,6 +39,11 @@ public final class RollbackFilter {
     public final java.util.List<String> includeMaterials = new java.util.ArrayList<>();
     /** Исключить эти материалы; пусто = ничего не исключать. */
     public final java.util.List<String> excludeMaterials = new java.util.ArrayList<>();
+
+    /** Фильтр действий ({@code a:place}/{@code a:break}/…): только эти категории; пусто = все. */
+    public final java.util.Set<String> actionsInclude = new java.util.HashSet<>();
+    /** Исключить эти категории действий ({@code a:!use}); пусто = ничего не исключать. */
+    public final java.util.Set<String> actionsExclude = new java.util.HashSet<>();
 
     public void setBox(int cx, int cy, int cz, int r) {
         this.centerX = cx; this.centerY = cy; this.centerZ = cz;
@@ -58,7 +66,9 @@ public final class RollbackFilter {
     public RollbackFilter copy() {
         RollbackFilter c = new RollbackFilter();
         c.timeFrom = timeFrom; c.timeTo = timeTo; c.levelName = levelName;
-        c.playerUuid = playerUuid; c.playerName = playerName;
+        c.playerUuid = playerUuid;
+        c.playerNames.addAll(playerNames);
+        c.excludePlayerNames.addAll(excludePlayerNames);
         c.minX = minX; c.minY = minY; c.minZ = minZ;
         c.maxX = maxX; c.maxY = maxY; c.maxZ = maxZ;
         c.radius = radius; c.centerX = centerX; c.centerY = centerY; c.centerZ = centerZ;
@@ -67,6 +77,8 @@ public final class RollbackFilter {
         c.sourceType = sourceType;
         c.includeMaterials.addAll(includeMaterials);
         c.excludeMaterials.addAll(excludeMaterials);
+        c.actionsInclude.addAll(actionsInclude);
+        c.actionsExclude.addAll(actionsExclude);
         return c;
     }
 }

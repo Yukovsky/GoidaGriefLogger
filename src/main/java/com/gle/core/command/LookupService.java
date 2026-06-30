@@ -43,20 +43,30 @@ public final class LookupService {
     private static final Map<UUID, List<Component>> LAST = new ConcurrentHashMap<>();
 
     private record Row(long time, String user, String actionText, String material,
-                       int x, int y, int z, boolean rolledBack, int amount, String source) {}
+                       int x, int y, int z, boolean rolledBack, int amount, String source,
+                       String category) {}
 
     public static void run(net.minecraft.server.MinecraftServer server, RollbackFilter f, ServerPlayer player) {
         if (!GLStorage.isReady()) { player.sendSystemMessage(Component.literal("§cХранилище недоступно.")); return; }
         EXEC.submit(() -> {
             try (Connection conn = GLStorage.get().database().newConnection()) {
                 List<Row> rows = new ArrayList<>();
+                // include:<материал> — белый список предметов/блоков: события без материала
+                // (входы/выходы, смерти, таблички) скрываем, иначе они «протекают» мимо фильтра
+                // и выглядят как «фильтр не сработал». При exclude: их оставляем (они не исключённый материал).
+                boolean materialOnly = !f.includeMaterials.isEmpty();
                 if (f.includeBlocks) queryBlocks(conn, f, rows);
                 if (f.includeItems) { queryContainers(conn, f, rows); queryItems(conn, f, rows); }
-                querySessions(conn, f, rows);
                 // Собственные таблицы GLE — иначе таблички/рамки/смерть не видны в lookup.
-                querySigns(conn, f, rows);
-                queryFrames(conn, f, rows);
-                queryDeaths(conn, f, rows);
+                queryFrames(conn, f, rows); // у рамок есть предмет — фильтр по материалу применяется
+                if (!materialOnly) {
+                    querySessions(conn, f, rows);
+                    querySigns(conn, f, rows);
+                    queryDeaths(conn, f, rows);
+                }
+                if (!f.actionsInclude.isEmpty() || !f.actionsExclude.isEmpty()) {
+                    rows.removeIf(r -> !com.gle.core.rollback.ActionFilters.allows(f, r.category()));
+                }
                 rows.sort(Comparator.comparingLong(Row::time).reversed());
                 long now = System.currentTimeMillis();
                 List<Component> lines = new ArrayList<>();
@@ -70,6 +80,20 @@ public final class LookupService {
                         Component.literal("§c" + com.gle.core.rollback.RollbackManager.translateDbError(e))));
             }
         });
+    }
+
+    /**
+     * Инспектор ({@code /gl inspect}): история одного блока — полный диапазон времени, бокс в одну
+     * клетку, текущий мир игрока. Переиспользует обычный {@link #run} со специально собранным фильтром.
+     */
+    public static void runAt(net.minecraft.server.MinecraftServer server, ServerPlayer player,
+                             net.minecraft.server.level.ServerLevel level, net.minecraft.core.BlockPos pos) {
+        RollbackFilter f = new RollbackFilter();
+        f.timeFrom = 0L;
+        f.timeTo = System.currentTimeMillis();
+        f.levelName = level.dimension().location().toString();
+        f.setBox(pos.getX(), pos.getY(), pos.getZ(), 0);
+        run(server, f, player);
     }
 
     /** Показать страницу сохранённого результата (вызывается из /gl page). */
@@ -133,16 +157,20 @@ public final class LookupService {
                 + "INNER JOIN levels l ON b.level=l.id LEFT JOIN users u ON b.user=u.id "
                 + "LEFT JOIN materials m ON b.type=m.id WHERE " + levelClause(f) + " AND b.time BETWEEN ? AND ? "
                 + "AND b.x BETWEEN ? AND ? AND b.y BETWEEN ? AND ? AND b.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND b.user=(SELECT id FROM users WHERE name=?)");
+        playerClauses(sql, f, "b");
         materialSub(sql, f);
         sql.append(" ORDER BY b.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i++, f.playerName);
+            i = bindPlayers(ps, f, i);
             bindMaterials(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) rows.add(new Row(rs.getLong(1), rs.getString(2), blockAction(rs.getInt(3)),
-                        rs.getString(4), rs.getInt(5), rs.getInt(6), rs.getInt(7), rs.getInt(8) != 0, 0, rs.getString(9)));
+                while (rs.next()) {
+                    int action = rs.getInt(3);
+                    rows.add(new Row(rs.getLong(1), rs.getString(2), blockAction(action),
+                            rs.getString(4), rs.getInt(5), rs.getInt(6), rs.getInt(7), rs.getInt(8) != 0, 0,
+                            rs.getString(9), com.gle.core.rollback.ActionFilters.blockCategory(action)));
+                }
             }
         }
     }
@@ -162,18 +190,19 @@ public final class LookupService {
                 + "INNER JOIN levels l ON t.level=l.id LEFT JOIN users u ON t.user=u.id "
                 + "LEFT JOIN materials m ON t.type=m.id WHERE " + levelClause(f) + " AND t.time BETWEEN ? AND ? "
                 + "AND t.x BETWEEN ? AND ? AND t.y BETWEEN ? AND ? AND t.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND t.user=(SELECT id FROM users WHERE name=?)");
+        playerClauses(sql, f, "t");
         materialSub(sql, f);
         sql.append(" ORDER BY t.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i++, f.playerName);
+            i = bindPlayers(ps, f, i);
             bindMaterials(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     boolean rolled = hasRolled && rs.getInt(9) != 0;
                     rows.add(new Row(rs.getLong(1), rs.getString(2), itemAction(rs.getInt(3)), rs.getString(4),
-                            rs.getInt(5), rs.getInt(6), rs.getInt(7), rolled, rs.getInt(8), null));
+                            rs.getInt(5), rs.getInt(6), rs.getInt(7), rolled, rs.getInt(8), null,
+                            com.gle.core.rollback.ActionFilters.CONTAINER));
                 }
             }
         }
@@ -184,15 +213,15 @@ public final class LookupService {
                 + "INNER JOIN levels l ON s.level=l.id LEFT JOIN users u ON s.user=u.id "
                 + "WHERE " + levelClause(f) + " AND s.time BETWEEN ? AND ? "
                 + "AND s.x BETWEEN ? AND ? AND s.y BETWEEN ? AND ? AND s.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND s.user=(SELECT id FROM users WHERE name=?)");
+        playerClauses(sql, f, "s");
         sql.append(" ORDER BY s.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i, f.playerName);
+            bindPlayers(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) rows.add(new Row(rs.getLong(1), rs.getString(2),
                         rs.getInt(3) == 0 ? "§aвошёл" : "§cвышел", "", rs.getInt(4), rs.getInt(5), rs.getInt(6),
-                        false, 0, null));
+                        false, 0, null, com.gle.core.rollback.ActionFilters.SESSION));
             }
         }
     }
@@ -203,16 +232,17 @@ public final class LookupService {
                 + "INNER JOIN levels l ON s.level=l.id LEFT JOIN users u ON s.user=u.id "
                 + "WHERE " + levelClause(f) + " AND s.time BETWEEN ? AND ? "
                 + "AND s.x BETWEEN ? AND ? AND s.y BETWEEN ? AND ? AND s.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND s.user=(SELECT id FROM users WHERE name=?)");
+        playerClauses(sql, f, "s");
         sql.append(" ORDER BY s.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i, f.playerName);
+            bindPlayers(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     String firstLine = firstNonEmptyLine(rs.getString(3));
                     rows.add(new Row(rs.getLong(1), rs.getString(2), "§eтабличка", firstLine,
-                            rs.getInt(4), rs.getInt(5), rs.getInt(6), false, 0, "sign"));
+                            rs.getInt(4), rs.getInt(5), rs.getInt(6), false, 0, "sign",
+                            com.gle.core.rollback.ActionFilters.SIGN));
                 }
             }
         }
@@ -224,15 +254,18 @@ public final class LookupService {
                 + "INNER JOIN levels l ON w.level=l.id LEFT JOIN users u ON w.user=u.id "
                 + "WHERE " + levelClause(f) + " AND w.time BETWEEN ? AND ? "
                 + "AND w.x BETWEEN ? AND ? AND w.y BETWEEN ? AND ? AND w.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND w.user=(SELECT id FROM users WHERE name=?)");
+        playerClauses(sql, f, "w");
+        sql.append(com.gle.core.rollback.MaterialMatcher.whereFragment("w.item", f.includeMaterials, f.excludeMaterials));
         sql.append(" ORDER BY w.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i, f.playerName);
+            i = bindPlayers(ps, f, i);
+            bindMaterials(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     rows.add(new Row(rs.getLong(1), rs.getString(2), frameAction(rs.getString(3)), rs.getString(4),
-                            rs.getInt(5), rs.getInt(6), rs.getInt(7), false, 0, rs.getString(8)));
+                            rs.getInt(5), rs.getInt(6), rs.getInt(7), false, 0, rs.getString(8),
+                            com.gle.core.rollback.ActionFilters.FRAME));
                 }
             }
         }
@@ -244,15 +277,20 @@ public final class LookupService {
                 + "INNER JOIN levels l ON d.level=l.id LEFT JOIN users u ON u.uuid=d.player_uuid "
                 + "WHERE " + levelClause(f) + " AND d.time BETWEEN ? AND ? "
                 + "AND d.x BETWEEN ? AND ? AND d.y BETWEEN ? AND ? AND d.z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND u.name=?");
+        if (!f.playerNames.isEmpty())
+            sql.append(" AND u.name IN (").append(placeholders(f.playerNames.size())).append(")");
+        if (!f.excludePlayerNames.isEmpty())
+            sql.append(" AND (u.name IS NULL OR u.name NOT IN (").append(placeholders(f.excludePlayerNames.size())).append("))");
         sql.append(" ORDER BY d.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
-            if (f.playerName != null) ps.setString(i, f.playerName);
+            for (String name : f.playerNames) ps.setString(i++, name);
+            for (String name : f.excludePlayerNames) ps.setString(i++, name);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     rows.add(new Row(rs.getLong(1), rs.getString(2), "§4умер", rs.getString(3),
-                            rs.getInt(4), rs.getInt(5), rs.getInt(6), false, 0, "death"));
+                            rs.getInt(4), rs.getInt(5), rs.getInt(6), false, 0, "death",
+                            com.gle.core.rollback.ActionFilters.DEATH));
                 }
             }
         }
@@ -302,10 +340,7 @@ public final class LookupService {
     }
 
     private static void materialSub(StringBuilder sql, RollbackFilter f) {
-        if (!f.includeMaterials.isEmpty())
-            sql.append(" AND m.name IN (").append(ph(f.includeMaterials.size())).append(")");
-        if (!f.excludeMaterials.isEmpty())
-            sql.append(" AND (m.name IS NULL OR m.name NOT IN (").append(ph(f.excludeMaterials.size())).append("))");
+        sql.append(com.gle.core.rollback.MaterialMatcher.whereFragment("m.name", f.includeMaterials, f.excludeMaterials));
     }
 
     /** WHERE-фрагмент по миру: либо равенство имени уровня (с биндом), либо «всё» без бинда. */
@@ -324,10 +359,27 @@ public final class LookupService {
     }
 
     private static int bindMaterials(PreparedStatement ps, RollbackFilter f, int i) throws SQLException {
-        for (String m : f.includeMaterials) ps.setString(i++, m);
-        for (String m : f.excludeMaterials) ps.setString(i++, m);
+        return com.gle.core.rollback.MaterialMatcher.bind(ps,
+                com.gle.core.rollback.MaterialMatcher.params(f.includeMaterials, f.excludeMaterials), i);
+    }
+
+    /** WHERE-фрагменты «по игроку»: include (user:) и exclude (u:!) — для таблиц с колонкой user. */
+    private static void playerClauses(StringBuilder sql, RollbackFilter f, String alias) {
+        if (!f.playerNames.isEmpty())
+            sql.append(" AND ").append(alias).append(".user IN (SELECT id FROM users WHERE name IN (")
+               .append(placeholders(f.playerNames.size())).append("))");
+        if (!f.excludePlayerNames.isEmpty())
+            sql.append(" AND ").append(alias).append(".user NOT IN (SELECT id FROM users WHERE name IN (")
+               .append(placeholders(f.excludePlayerNames.size())).append("))");
+    }
+
+    private static int bindPlayers(PreparedStatement ps, RollbackFilter f, int i) throws SQLException {
+        for (String name : f.playerNames) ps.setString(i++, name);
+        for (String name : f.excludePlayerNames) ps.setString(i++, name);
         return i;
     }
 
-    private static String ph(int n) { return String.join(",", java.util.Collections.nCopies(n, "?")); }
+    private static String placeholders(int n) {
+        return String.join(",", java.util.Collections.nCopies(n, "?"));
+    }
 }

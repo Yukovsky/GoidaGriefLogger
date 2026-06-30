@@ -16,6 +16,7 @@ import com.gle.listener.DecorationListener;
 import com.gle.listener.EnderChestListener;
 import com.gle.listener.EntityKillListener;
 import com.gle.listener.ExplosionListener;
+import com.gle.listener.InspectListener;
 import com.gle.listener.ItemPickupListener;
 import com.gle.listener.ModBlockListener;
 import com.gle.listener.PistonListener;
@@ -82,6 +83,7 @@ public final class GLE {
         NeoForge.EVENT_BUS.register(new ChatCommandListener());
         NeoForge.EVENT_BUS.register(new VanillaInteractListener());
         NeoForge.EVENT_BUS.register(new EnderChestListener());
+        NeoForge.EVENT_BUS.register(new InspectListener());
 
         // Не-игровые источники
         NeoForge.EVENT_BUS.register(new ExplosionListener());

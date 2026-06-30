@@ -75,9 +75,13 @@ public final class GLCommand {
                                 .suggests(filterSuggest)
                                 .executes(ctx -> doLookup(ctx, StringArgumentType.getString(ctx, "args")))))
                 .then(Commands.literal("page")
-                        .requires(GLEPermissions::canLookup)
+                        // Постраничный вывод общий для lookup и inspect (кнопки навигации шлют /gl page).
+                        .requires(src -> GLEPermissions.canLookup(src) || GLEPermissions.canInspect(src))
                         .then(Commands.argument("n", IntegerArgumentType.integer(1))
                                 .executes(ctx -> doLookupPage(ctx, IntegerArgumentType.getInteger(ctx, "n")))))
+                .then(Commands.literal("inspect")
+                        .requires(GLEPermissions::canInspect)
+                        .executes(GLCommand::doInspect))
                 .then(Commands.literal("abort")
                         .requires(GLEPermissions::canAbort)
                         .executes(GLCommand::doAbort))
@@ -118,13 +122,16 @@ public final class GLCommand {
             }
         } else if ((pfx = matched(lower, "source:", "s:")) != null) {
             for (String s : SOURCE_TYPES) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
+        } else if ((pfx = matched(lower, "action:", "a:")) != null) {
+            for (String s : new String[]{"place", "break", "use", "kill", "container", "session",
+                    "!place", "!break", "!use", "!kill", "!container"}) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
         } else if ((pfx = matched(lower, "include:", "inc:", "exclude:", "exc:")) != null) {
             // Любой предмет/блок игры (modid:name), как в GriefLogger.
             SuggestionsBuilder rb = builder.createOffset(base + pfx.length());
             return SharedSuggestionProvider.suggestResource(allMaterials(), rb);
         } else {
             for (String key : new String[]{"time:", "t:", "radius:", "r:", "world:", "w:",
-                    "user:", "u:", "source:", "s:", "include:", "exclude:", "blocks", "items"}) {
+                    "user:", "u:", "action:", "a:", "source:", "s:", "include:", "exclude:", "blocks", "items"}) {
                 if (key.startsWith(lower)) b.suggest(key);
             }
         }
@@ -144,6 +151,28 @@ public final class GLCommand {
                 net.minecraft.core.registries.BuiltInRegistries.ITEM.keySet().stream()).distinct();
     }
 
+    /** Есть ли в реестре блок/предмет, подходящий под токен (та же семантика, что в SQL-фильтре). */
+    private static boolean materialExists(String token) {
+        return allMaterials().anyMatch(rl -> com.gle.core.rollback.MaterialMatcher.matches(
+                com.gle.core.GLMaterials.normalize(rl), token));
+    }
+
+    /**
+     * Предупредить, если токен include:/exclude: не соответствует ни одному предмету/блоку игры
+     * (опечатка или неполное имя) — иначе фильтр молча сужает выборку до нуля. Только уведомление,
+     * выполнение продолжается (include с пустым совпадением безопасно: откатывать нечего).
+     */
+    private static void warnUnknownMaterials(CommandSourceStack src, RollbackFilter f) {
+        java.util.List<String> unknown = new java.util.ArrayList<>();
+        for (String t : f.includeMaterials) if (!materialExists(t)) unknown.add("include:" + t);
+        for (String t : f.excludeMaterials) if (!materialExists(t)) unknown.add("exclude:" + t);
+        if (!unknown.isEmpty()) {
+            src.sendSystemMessage(Component.literal("§e[GLE] Фильтр не соответствует ни одному предмету/блоку: §f"
+                    + String.join(", ", unknown)
+                    + "§7. Проверьте имя (modid:name) или используйте маску, напр. include:*drain*."));
+        }
+    }
+
     // ---------- подкоманды ----------
 
     private static int doRollback(CommandContext<CommandSourceStack> ctx, String args) {
@@ -153,6 +182,7 @@ public final class GLCommand {
 
         RollbackFilter f = parseFilter(args, player);
         if (f == null) { usageError(src, "rollback"); return 0; }
+        warnUnknownMaterials(src, f);
 
         Consumer<Component> fb = msg -> src.sendSystemMessage(msg);
         String err = RollbackManager.get().startRollback(src.getServer(),
@@ -167,6 +197,7 @@ public final class GLCommand {
         if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
         RollbackFilter f = parseFilter(args, player);
         if (f == null) { usageError(src, "preview"); return 0; }
+        warnUnknownMaterials(src, f);
         if (f.allWorlds) {
             src.sendFailure(Component.literal("§cpreview не поддерживает world:* — укажите конкретный мир."));
             return 0;
@@ -199,6 +230,7 @@ public final class GLCommand {
         if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
         RollbackFilter f = parseFilter(args, player);
         if (f == null) { usageError(src, "restore"); return 0; }
+        warnUnknownMaterials(src, f);
         Consumer<Component> fb = msg -> src.sendSystemMessage(msg);
         String err = RollbackManager.get().startRestore(src.getServer(),
                 player.getUUID(), player.getGameProfile().getName(), f, fb);
@@ -213,7 +245,20 @@ public final class GLCommand {
         if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
         RollbackFilter f = parseFilter(args, player);
         if (f == null) { usageError(src, "lookup"); return 0; }
+        warnUnknownMaterials(src, f);
         LookupService.run(src.getServer(), f, player);
+        return 1;
+    }
+
+    /** Переключить режим инспектора (клик по блоку → история места), как в CoreProtect. */
+    private static int doInspect(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        ServerPlayer player = src.getPlayer();
+        if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
+        boolean on = InspectManager.toggle(player.getUUID());
+        src.sendSystemMessage(Component.literal(on
+                ? "§a[GLE] Инспектор включён. §7Клик по блоку — история места. §8(/gl inspect — выключить)"
+                : "§7[GLE] Инспектор выключен."));
         return 1;
     }
 
@@ -247,22 +292,24 @@ public final class GLCommand {
         s.sendSystemMessage(Component.literal("§e/gl rollback <фильтры>§7 — откатить изменения"));
         s.sendSystemMessage(Component.literal("§e/gl restore <фильтры>§7 — вернуть откатанное (те же фильтры, как в CoreProtect)"));
         s.sendSystemMessage(Component.literal("§e/gl lookup <фильтры>§7 — история (откатанное §mзачёркнуто§r§7); §e/gl page <n>§7 — страница"));
+        s.sendSystemMessage(Component.literal("§e/gl inspect§7 — режим инспектора: клик по блоку → история места (повторно — выключить)"));
         s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview cancel"));
         s.sendSystemMessage(Component.literal("§e/gl abort§7 — стоп активного задания; §e/gl status"));
         s.sendSystemMessage(Component.literal("§6Фильтры §7(можно полные и краткие имена):"));
         s.sendSystemMessage(Component.literal("§7  time:§f|t:§f<время>§7 — 1h, 30m, 1d, 1d12h §o(обязательно)"));
         s.sendSystemMessage(Component.literal("§7  radius:§f|r:§f<радиус|global>§7 — блоков вокруг вас или весь мир §o(обязательно)"));
         s.sendSystemMessage(Component.literal("§7  world:§f|w:§f<мир|*>§7 — напр. world:the_nether или world:* (все миры)"));
-        s.sendSystemMessage(Component.literal("§7  user:§f|u:§f<игрок>§7 — напр. u:Steve или u:[TNT]"));
+        s.sendSystemMessage(Component.literal("§7  user:§f|u:§f<игрок>§7 — напр. u:Steve, u:[TNT]; §fu:!Игрок§7 — исключить игрока"));
+        s.sendSystemMessage(Component.literal("§7  action:§f|a:§f<действие>§7 — place/break/use/kill/container/session; §fa:!break§7 — исключить"));
         s.sendSystemMessage(Component.literal("§7  source:§f|s:§f<источник>§7 — напр. s:tnt, s:create:deployer"));
-        s.sendSystemMessage(Component.literal("§7  include:§f|exclude:§f<предмет/блок>§7 — любой modid:name (подсказки по Tab)"));
+        s.sendSystemMessage(Component.literal("§7  include:§f|exclude:§f<предмет/блок>§7 — modid:name; modid можно опустить (item_drain), маска include:*drain*"));
         s.sendSystemMessage(Component.literal("§7  blocks§f|b§7 — только блоки, §fitems§7|§fi§7 — только предметы"));
         s.sendSystemMessage(Component.literal("§8Примеры: /gl rollback t:1h r:10 s:tnt §8| §8/gl rollback t:7d r:global world:* u:Griefer"));
         return 1;
     }
 
     private static void usageError(CommandSourceStack src, String sub) {
-        src.sendFailure(Component.literal("§cФормат: /gl " + sub + " time:<время> radius:<радиус|global> [world:<мир|*>] [user:<игрок>] [source:<источник>] [include:<предмет>] [exclude:<предмет>] [blocks|items]"));
+        src.sendFailure(Component.literal("§cФормат: /gl " + sub + " time:<время> radius:<радиус|global> [world:<мир|*>] [user:<игрок>|u:!<игрок>] [action:<place|break|use|kill|container>] [source:<источник>] [include:<предмет>] [exclude:<предмет>] [blocks|items]"));
         src.sendFailure(Component.literal("§7Краткие имена: t: r: w: u: s:. Подробнее: /gl help. Пример: /gl " + sub + " t:1h r:10 s:tnt"));
     }
 
@@ -301,7 +348,15 @@ public final class GLCommand {
                 if (isGlobal(v)) f.allWorlds = true;
                 else f.levelName = normDim(v);
             } else if ((v = strip(lower, token, "user:", "u:")) != null) {
-                f.playerName = v; // сохраняем регистр (имена системных юзеров [TNT])
+                // u:Имя — только этот игрок; u:!Имя — исключить игрока. Регистр сохраняем ([TNT] и ники).
+                if (v.startsWith("!")) f.excludePlayerNames.add(v.substring(1));
+                else f.playerNames.add(v);
+            } else if ((v = strip(lower, token, "action:", "a:")) != null) {
+                // a:place / a:break / a:!use … (форма GriefLogger a:[CREATE] тоже принимается)
+                boolean neg = v.startsWith("!");
+                String cat = com.gle.core.rollback.ActionFilters.canon(neg ? v.substring(1) : v);
+                if (cat == null) return null; // неизвестное действие — покажем формат
+                (neg ? f.actionsExclude : f.actionsInclude).add(cat);
             } else if ((v = strip(lower, token, "source:", "s:")) != null) {
                 f.sourceType = v;
             } else if ((v = strip(lower, token, "include:", "inc:")) != null) {
@@ -331,9 +386,13 @@ public final class GLCommand {
         return l.equals("global") || l.equals("all") || l.equals("g") || l.equals("*");
     }
 
-    /** Нормализация имени материала под формат GriefLogger (без minecraft:). */
+    /**
+     * Нормализация токена материала под формат GriefLogger: нижний регистр (имена в реестре всегда
+     * lowercase) и без префикса {@code minecraft:}. {@code *}-маски сохраняются как есть.
+     */
     private static String normMat(String s) {
-        return s.startsWith("minecraft:") ? s.substring("minecraft:".length()) : s;
+        String t = s.toLowerCase();
+        return t.startsWith("minecraft:") ? t.substring("minecraft:".length()) : t;
     }
 
     /** Имя измерения: алиасы overworld/nether/end → каноничные, иначе добавляем minecraft: при нужде. */

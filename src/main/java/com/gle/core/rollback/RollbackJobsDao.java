@@ -34,7 +34,8 @@ public final class RollbackJobsDao {
             ps.setLong(6, f.timeFrom);
             ps.setLong(7, f.timeTo);
             ps.setNull(8, java.sql.Types.VARCHAR);
-            if (f.playerName == null) ps.setNull(9, java.sql.Types.VARCHAR); else ps.setString(9, f.playerName);
+            if (f.playerNames.isEmpty()) ps.setNull(9, java.sql.Types.VARCHAR);
+            else ps.setString(9, String.join(",", f.playerNames));
             ps.setDouble(10, f.radius);
             ps.setInt(11, f.centerX); ps.setInt(12, f.centerY); ps.setInt(13, f.centerZ);
             ps.setString(14, f.levelName);

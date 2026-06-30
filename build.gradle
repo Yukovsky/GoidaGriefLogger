@@ -65,7 +65,11 @@ dependencies {
     //   Раньше sqlite-jdbc вёз GL; конфликт был только с тем экземпляром, GL удалён → бандлить
     //   теперь безопасно. compileOnly — для компиляции; localRuntime — для dev-запусков (dev не
     //   грузит из упакованного jar, поэтому jarJar в dev не извлекается).
-    // MySQL: connector ставится в окружение сервера отдельно (как и раньше) — НЕ бандлим.
+    // MySQL: connector тоже бандлим через jarJar. Раньше его «вёз» GriefLogger; после его удаления
+    //   (Путь E) standalone-мод стал единственным, кто может положить драйвер в classpath — иначе
+    //   старт с MySQL падает с ClassNotFoundException: com.mysql.cj.jdbc.Driver. Бандлим БЕЗ
+    //   транзитивных зависимостей: connector тянет protobuf-java (нужен только X DevAPI), который
+    //   везут многие моды → конфликт. Классический JDBC-драйвер работает без protobuf → transitive=false.
     compileOnly "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
     localRuntime "org.xerial:sqlite-jdbc:${sqlite_jdbc_version}"
     jarJar("org.xerial:sqlite-jdbc") {
@@ -77,6 +81,13 @@ dependencies {
 
     compileOnly "com.mysql:mysql-connector-j:${mysql_connector_version}"
     localRuntime "com.mysql:mysql-connector-j:${mysql_connector_version}"
+    jarJar("com.mysql:mysql-connector-j") {
+        transitive = false
+        version {
+            strictly "[${mysql_connector_version},9.0.0)"
+            prefer "${mysql_connector_version}"
+        }
+    }
 }
 
 // Сделать localRuntime доступным в dev-запусках, не утягивая в published-артефакт

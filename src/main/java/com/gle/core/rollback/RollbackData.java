@@ -38,6 +38,8 @@ public final class RollbackData {
     ) {}
 
     public static List<BlockChange> queryBlocks(Connection conn, RollbackFilter f) throws SQLException {
+        List<Integer> actions = ActionFilters.allowedRollbackBlockActions(f);
+        if (actions.isEmpty()) return new ArrayList<>();  // фильтр действий исключил и сломы, и постановки
         StringBuilder sql = new StringBuilder("""
                 SELECT b.time, m.name, b.action, b.x, b.y, b.z, b.source_type, b.extra_data, b.block_nbt
                 FROM blocks b
@@ -45,8 +47,8 @@ public final class RollbackData {
                 LEFT JOIN materials m ON b.type = m.id
                 WHERE l.name = ? AND b.time BETWEEN ? AND ?
                   AND b.x BETWEEN ? AND ? AND b.y BETWEEN ? AND ? AND b.z BETWEEN ? AND ?
-                  AND b.action IN (0, 1)
                 """);
+        sql.append("  AND b.action IN (").append(intList(actions)).append(")\n");
         appendFilters(sql, f, "b");
         sql.append(" ORDER BY b.time DESC");
 
@@ -112,6 +114,8 @@ public final class RollbackData {
     }
 
     public static List<ItemChange> queryItems(Connection conn, RollbackFilter f) throws SQLException {
+        // Фильтр действий: контейнеры — единая категория; если она не проходит, предметы не трогаем.
+        if (!ActionFilters.allows(f, ActionFilters.CONTAINER)) return new ArrayList<>();
         // У containers нет source_type — фильтр по источнику к предметам не применяем.
         StringBuilder sql = new StringBuilder("""
                 SELECT c.time, m.name, c.action, c.x, c.y, c.z, c.data, c.amount
@@ -121,15 +125,14 @@ public final class RollbackData {
                 WHERE l.name = ? AND c.time BETWEEN ? AND ?
                   AND c.x BETWEEN ? AND ? AND c.y BETWEEN ? AND ? AND c.z BETWEEN ? AND ?
                 """);
-        boolean byPlayer = f.playerName != null;
-        if (byPlayer) sql.append(" AND c.user = (SELECT id FROM users WHERE name = ?)");
+        appendPlayerFilters(sql, f, "c.user");
         appendMaterialFilters(sql, f);
         sql.append(" ORDER BY c.time DESC");
 
         List<ItemChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindCommon(ps, f);
-            if (byPlayer) ps.setString(i++, f.playerName);
+            i = bindPlayerParams(ps, f, i);
             i = bindMaterials(ps, f, i);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -146,31 +149,43 @@ public final class RollbackData {
     // --- построение фильтров ---
 
     private static void appendFilters(StringBuilder sql, RollbackFilter f, String alias) {
-        if (f.playerName != null) sql.append(" AND ").append(alias).append(".user = (SELECT id FROM users WHERE name = ?)");
+        appendPlayerFilters(sql, f, alias + ".user");
         if (f.sourceType != null) sql.append(" AND ").append(alias).append(".source_type = ?");
         appendMaterialFilters(sql, f);
     }
 
+    private static void appendPlayerFilters(StringBuilder sql, RollbackFilter f, String col) {
+        if (!f.playerNames.isEmpty())
+            sql.append(" AND ").append(col).append(" IN (SELECT id FROM users WHERE name IN (")
+               .append(placeholders(f.playerNames.size())).append("))");
+        if (!f.excludePlayerNames.isEmpty())
+            sql.append(" AND ").append(col).append(" NOT IN (SELECT id FROM users WHERE name IN (")
+               .append(placeholders(f.excludePlayerNames.size())).append("))");
+    }
+
+    private static String placeholders(int n) {
+        return String.join(",", java.util.Collections.nCopies(n, "?"));
+    }
+
     private static void appendMaterialFilters(StringBuilder sql, RollbackFilter f) {
-        if (!f.includeMaterials.isEmpty()) {
-            sql.append(" AND m.name IN (").append(placeholders(f.includeMaterials.size())).append(")");
-        }
-        if (!f.excludeMaterials.isEmpty()) {
-            sql.append(" AND (m.name IS NULL OR m.name NOT IN (").append(placeholders(f.excludeMaterials.size())).append("))");
-        }
+        sql.append(MaterialMatcher.whereFragment("m.name", f.includeMaterials, f.excludeMaterials));
     }
 
     private static int bindAll(PreparedStatement ps, RollbackFilter f) throws SQLException {
         int i = bindCommon(ps, f);
-        if (f.playerName != null) ps.setString(i++, f.playerName);
+        i = bindPlayerParams(ps, f, i);
         if (f.sourceType != null) ps.setString(i++, f.sourceType);
         return bindMaterials(ps, f, i);
     }
 
-    private static int bindMaterials(PreparedStatement ps, RollbackFilter f, int i) throws SQLException {
-        for (String m : f.includeMaterials) ps.setString(i++, m);
-        for (String m : f.excludeMaterials) ps.setString(i++, m);
+    private static int bindPlayerParams(PreparedStatement ps, RollbackFilter f, int i) throws SQLException {
+        for (String name : f.playerNames) ps.setString(i++, name);
+        for (String name : f.excludePlayerNames) ps.setString(i++, name);
         return i;
+    }
+
+    private static int bindMaterials(PreparedStatement ps, RollbackFilter f, int i) throws SQLException {
+        return MaterialMatcher.bind(ps, MaterialMatcher.params(f.includeMaterials, f.excludeMaterials), i);
     }
 
     private static int bindCommon(PreparedStatement ps, RollbackFilter f) throws SQLException {
@@ -183,23 +198,31 @@ public final class RollbackData {
         return 10;
     }
 
-    private static String placeholders(int n) {
-        return String.join(",", java.util.Collections.nCopies(n, "?"));
+    /** Список int'ов через запятую для безопасной подстановки кодов действий в {@code IN (...)}. */
+    private static String intList(List<Integer> values) {
+        StringBuilder sb = new StringBuilder();
+        for (int k = 0; k < values.size(); k++) {
+            if (k > 0) sb.append(',');
+            sb.append(values.get(k).intValue());
+        }
+        return sb.toString();
     }
 
     // --- пометка rolled_back (для зачёркивания в lookup, как в CoreProtect) ---
 
     /** Пометить откатанные строки blocks. value: 1 = откатано, 0 = restore вернул. */
     public static int markBlocksRolledBack(Connection conn, RollbackFilter f, int value) throws SQLException {
+        List<Integer> actions = ActionFilters.allowedRollbackBlockActions(f);
+        if (actions.isEmpty()) return 0;
         StringBuilder sql = new StringBuilder("UPDATE blocks SET rolled_back = ? "
                 + "WHERE level = (SELECT id FROM levels WHERE name = ?) AND time BETWEEN ? AND ? "
-                + "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? AND action IN (0,1)");
-        if (f.playerName != null) sql.append(" AND user = (SELECT id FROM users WHERE name = ?)");
+                + "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ? AND action IN (" + intList(actions) + ")");
+        appendPlayerFilters(sql, f, "user");
         if (f.sourceType != null) sql.append(" AND source_type = ?");
         appendMaterialSubqueries(sql, f);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindUpdate(ps, f, value);
-            if (f.playerName != null) ps.setString(i++, f.playerName);
+            i = bindPlayerParams(ps, f, i);
             if (f.sourceType != null) ps.setString(i++, f.sourceType);
             bindMaterials(ps, f, i);
             return ps.executeUpdate();
@@ -208,14 +231,15 @@ public final class RollbackData {
 
     /** Пометить откатанные строки containers. */
     public static int markContainersRolledBack(Connection conn, RollbackFilter f, int value) throws SQLException {
+        if (!ActionFilters.allows(f, ActionFilters.CONTAINER)) return 0;
         StringBuilder sql = new StringBuilder("UPDATE containers SET rolled_back = ? "
                 + "WHERE level = (SELECT id FROM levels WHERE name = ?) AND time BETWEEN ? AND ? "
                 + "AND x BETWEEN ? AND ? AND y BETWEEN ? AND ? AND z BETWEEN ? AND ?");
-        if (f.playerName != null) sql.append(" AND user = (SELECT id FROM users WHERE name = ?)");
+        appendPlayerFilters(sql, f, "user");
         appendMaterialSubqueries(sql, f);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindUpdate(ps, f, value);
-            if (f.playerName != null) ps.setString(i++, f.playerName);
+            i = bindPlayerParams(ps, f, i);
             bindMaterials(ps, f, i);
             return ps.executeUpdate();
         }
@@ -223,9 +247,11 @@ public final class RollbackData {
 
     private static void appendMaterialSubqueries(StringBuilder sql, RollbackFilter f) {
         if (!f.includeMaterials.isEmpty())
-            sql.append(" AND type IN (SELECT id FROM materials WHERE name IN (").append(placeholders(f.includeMaterials.size())).append("))");
+            sql.append(" AND type IN (SELECT id FROM materials WHERE ")
+               .append(MaterialMatcher.orPredicate("name", f.includeMaterials)).append(")");
         if (!f.excludeMaterials.isEmpty())
-            sql.append(" AND type NOT IN (SELECT id FROM materials WHERE name IN (").append(placeholders(f.excludeMaterials.size())).append("))");
+            sql.append(" AND type NOT IN (SELECT id FROM materials WHERE ")
+               .append(MaterialMatcher.orPredicate("name", f.excludeMaterials)).append(")");
     }
 
     private static int bindUpdate(PreparedStatement ps, RollbackFilter f, int value) throws SQLException {

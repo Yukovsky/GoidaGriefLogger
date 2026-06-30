@@ -20,7 +20,8 @@ import java.util.Optional;
  * <ul>
  *   <li>{@code gle.rollback} — /gl rollback</li>
  *   <li>{@code gle.restore} — /gl restore</li>
- *   <li>{@code gle.lookup} — /gl lookup и /gl page (просмотр истории)</li>
+ *   <li>{@code gle.lookup} — /gl lookup (просмотр истории по фильтрам); подразумевает {@code gle.inspect}</li>
+ *   <li>{@code gle.inspect} — /gl inspect (режим инспектора: клик по блоку → история места)</li>
  *   <li>{@code gle.preview} — /gl preview [cancel]</li>
  *   <li>{@code gle.abort} — /gl abort</li>
  *   <li>{@code gle.status} — /gl status</li>
@@ -40,6 +41,7 @@ public final class GLEPermissions {
     public static final PermissionNode<Boolean> ROLLBACK = node("rollback");
     public static final PermissionNode<Boolean> RESTORE  = node("restore");
     public static final PermissionNode<Boolean> LOOKUP   = node("lookup");
+    public static final PermissionNode<Boolean> INSPECT  = node("inspect");
     public static final PermissionNode<Boolean> PREVIEW  = node("preview");
     public static final PermissionNode<Boolean> ABORT    = node("abort");
     public static final PermissionNode<Boolean> STATUS   = node("status");
@@ -49,6 +51,7 @@ public final class GLEPermissions {
     public static final String N_ROLLBACK = "gle.rollback";
     public static final String N_RESTORE  = "gle.restore";
     public static final String N_LOOKUP   = "gle.lookup";
+    public static final String N_INSPECT  = "gle.inspect";
     public static final String N_PREVIEW  = "gle.preview";
     public static final String N_ABORT    = "gle.abort";
     public static final String N_STATUS   = "gle.status";
@@ -63,7 +66,7 @@ public final class GLEPermissions {
 
     @SubscribeEvent
     public static void onGatherNodes(PermissionGatherEvent.Nodes event) {
-        event.addNodes(ROLLBACK, RESTORE, LOOKUP, PREVIEW, ABORT, STATUS, HELP);
+        event.addNodes(ROLLBACK, RESTORE, LOOKUP, INSPECT, PREVIEW, ABORT, STATUS, HELP);
     }
 
     private static boolean has(CommandSourceStack src, PermissionNode<Boolean> node, String stringNode) {
@@ -83,6 +86,9 @@ public final class GLEPermissions {
     public static boolean canRollback(CommandSourceStack src) { return has(src, ROLLBACK, N_ROLLBACK); }
     public static boolean canRestore(CommandSourceStack src)  { return has(src, RESTORE, N_RESTORE); }
     public static boolean canLookup(CommandSourceStack src)   { return has(src, LOOKUP, N_LOOKUP); }
+    // gle.lookup подразумевает gle.inspect (но не наоборот): у кого есть просмотр истории по фильтрам —
+    // тому доступен и инспектор по клику. Отдельный gle.inspect даёт ТОЛЬКО инспектор, без /gl lookup.
+    public static boolean canInspect(CommandSourceStack src)  { return canLookup(src) || has(src, INSPECT, N_INSPECT); }
     public static boolean canPreview(CommandSourceStack src)  { return has(src, PREVIEW, N_PREVIEW); }
     public static boolean canAbort(CommandSourceStack src)    { return has(src, ABORT, N_ABORT); }
     public static boolean canStatus(CommandSourceStack src)   { return has(src, STATUS, N_STATUS); }
@@ -90,7 +96,7 @@ public final class GLEPermissions {
 
     /** Доступ хотя бы к одному действию — гейт корневого узла {@code /gl}. */
     public static boolean canAny(CommandSourceStack src) {
-        return canRollback(src) || canRestore(src) || canLookup(src) || canPreview(src)
+        return canRollback(src) || canRestore(src) || canLookup(src) || canInspect(src) || canPreview(src)
                 || canAbort(src) || canStatus(src) || canHelp(src);
     }
 }
