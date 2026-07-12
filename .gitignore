@@ -23,8 +23,6 @@ research/
 build_log.txt
 message*.txt
 
-# AI / Claude Code — не публикуем
-.claude/
 memory/
 
 # Windows reserved device names (git артефакт)
