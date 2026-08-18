@@ -3,10 +3,14 @@ package com.gle.core.db;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -28,6 +32,9 @@ public final class WriteQueue {
     /** Сколько ждём дренажа очереди при остановке, прежде чем прервать поток. */
     private static final long DRAIN_TIMEOUT_MS = 10_000;
 
+    /** Сколько ждать выхода потока из текущего пакета после {@code interrupt()}. */
+    private static final long INTERRUPT_GRACE_MS = 2_000;
+
     /**
      * Максимум задач, сливаемых в одну транзакцию. Каждый коммит на SQLite — это запись в WAL
      * и попытка взять write-lock (конкуренция с GriefLogger). Пакетируя сотни вставок в один
@@ -36,10 +43,31 @@ public final class WriteQueue {
      */
     private static final int BATCH_MAX = 512;
 
-    /** Задача записи: получает живое соединение и выполняет вставку(и). */
+    /**
+     * Сколько ждать места в очереди, прежде чем отбросить запись. Компромисс: полсекунды тика
+     * ради сохранности лога — приемлемо, секунды простоя игрового потока — нет.
+     */
+    private static final long BACKPRESSURE_MS = 25;
+
+    /**
+     * Задача записи. Соединение нужно для разрешения справочных id ({@code IdCache}), а сами
+     * строки задача НЕ исполняет: она берёт {@link PreparedStatement} у {@link StatementSink}
+     * и делает {@code addBatch()}. Всё, что накопилось за пакет, уходит одним
+     * {@code executeBatch()} на таблицу — приём CoreProtect.
+     */
     @FunctionalInterface
     public interface WriteTask {
-        void run(Connection connection) throws SQLException;
+        void run(Connection connection, StatementSink sink) throws SQLException;
+    }
+
+    /**
+     * Выдаёт {@link PreparedStatement} для SQL в пределах текущего пакета: одинаковый SQL —
+     * один и тот же statement, поэтому N строк одной таблицы стоят один prepare и один
+     * round-trip вместо N.
+     */
+    @FunctionalInterface
+    public interface StatementSink {
+        PreparedStatement statement(String sql) throws SQLException;
     }
 
     private final GLDatabase db;
@@ -47,7 +75,7 @@ public final class WriteQueue {
     private final Thread worker;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong dropped = new AtomicLong();
-    private long lastOverflowWarn = 0;
+    private volatile long lastOverflowWarn = 0;
 
     /**
      * Хук, вызываемый при ОТКАТЕ пакета (после {@code rollback()}). Нужен, чтобы инвалидировать
@@ -75,16 +103,29 @@ public final class WriteQueue {
         }
     }
 
-    /** Поставить задачу в очередь. Без блокировки игрового потока; при переполнении — drop. */
+    /**
+     * Поставить задачу в очередь.
+     * <p>
+     * При переполнении раньше запись просто ОТБРАСЫВАЛАСЬ — для мода безопасности это худший
+     * из возможных исходов. Теперь даём писателю короткое окно дослить пакет ({@link #BACKPRESSURE_MS}),
+     * и только если и это не помогло — отбрасываем со счётчиком. Окно намеренно короткое: это
+     * вызывается в том числе с игрового потока, и длинная блокировка обрушила бы TPS.
+     */
     public void submit(WriteTask task) {
         if (!running.get()) return;
-        if (!queue.offer(task)) {
-            long n = dropped.incrementAndGet();
-            long now = System.currentTimeMillis();
-            if (now - lastOverflowWarn > 30_000) {
-                lastOverflowWarn = now;
-                LOGGER.warn("Очередь записи GLE переполнена — отброшено записей: {}", n);
-            }
+        if (queue.offer(task)) return;
+        try {
+            if (queue.offer(task, BACKPRESSURE_MS, TimeUnit.MILLISECONDS)) return;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        long n = dropped.incrementAndGet();
+        long now = System.currentTimeMillis();
+        if (now - lastOverflowWarn > 30_000) {
+            lastOverflowWarn = now;
+            LOGGER.warn("Очередь записи GLE переполнена — отброшено записей: {}. "
+                    + "Увеличьте asyncQueueSize или проверьте задержки БД.", n);
         }
     }
 
@@ -150,6 +191,16 @@ public final class WriteQueue {
      */
     private void runBatch(Connection c, List<WriteTask> batch) throws SQLException {
         boolean restoreAutoCommit = false;
+        // LinkedHashMap: статементы исполняются в том порядке, в каком таблицы впервые встретились.
+        final Map<String, PreparedStatement> statements = new LinkedHashMap<>();
+        final StatementSink sink = sql -> {
+            PreparedStatement ps = statements.get(sql);
+            if (ps == null) {
+                ps = c.prepareStatement(sql);
+                statements.put(sql, ps);
+            }
+            return ps;
+        };
         try {
             if (c.getAutoCommit()) {
                 c.setAutoCommit(false);
@@ -157,12 +208,13 @@ public final class WriteQueue {
             }
             for (WriteTask task : batch) {
                 try {
-                    task.run(c);
+                    task.run(c, sink);
                 } catch (SQLException e) {
                     if (isConnectionError(e)) throw e; // соединение мёртвое — прерываем пакет
-                    LOGGER.error("Ошибка выполнения задачи записи GLE", e);
+                    LOGGER.error("Ошибка подготовки задачи записи GLE", e);
                 }
             }
+            executeAll(statements);
             c.commit();
         } catch (SQLException e) {
             try {
@@ -178,12 +230,40 @@ public final class WriteQueue {
             }
             throw e;
         } finally {
+            for (PreparedStatement ps : statements.values()) {
+                try {
+                    ps.close();
+                } catch (SQLException ignored) {
+                    // закрытие statement'а не должно ронять пакет
+                }
+            }
             if (restoreAutoCommit) {
                 try {
                     c.setAutoCommit(true);
                 } catch (SQLException ignored) {
                     // не критично: следующий пакет снова выставит режим
                 }
+            }
+        }
+    }
+
+    /**
+     * Исполнить накопленные пакеты. Сбой одной таблицы не отменяет остальные: строки логов
+     * независимы, и терять весь пакет из-за одной кривой строки нельзя. Разрыв соединения —
+     * исключение: он пробрасывается наверх, чтобы пакет целиком повторился после переподключения.
+     */
+    private void executeAll(Map<String, PreparedStatement> statements) throws SQLException {
+        for (Map.Entry<String, PreparedStatement> e : statements.entrySet()) {
+            try {
+                e.getValue().executeBatch();
+            } catch (BatchUpdateException be) {
+                if (isConnectionError(be)) throw be;
+                int applied = be.getUpdateCounts() == null ? 0 : be.getUpdateCounts().length;
+                LOGGER.error("Пакетная вставка GLE не прошла (применено строк: {}), sql: {}",
+                        applied, e.getKey(), be);
+            } catch (SQLException se) {
+                if (isConnectionError(se)) throw se;
+                LOGGER.error("Ошибка пакетной вставки GLE, sql: {}", e.getKey(), se);
             }
         }
     }
@@ -225,13 +305,24 @@ public final class WriteQueue {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
+        if (!worker.isAlive()) return;
+
+        int left = queue.size();
+        if (left > 0) {
+            LOGGER.warn("Поток записи GLE не успел дренировать очередь за {} мс — отброшено записей: {}",
+                    DRAIN_TIMEOUT_MS, left);
+        }
+        worker.interrupt();
+        // Дожидаемся выхода из текущего пакета: вызывающий сразу за этим закрывает Connection,
+        // и закрытие под незакоммиченной транзакцией потеряло бы уже подготовленный пакет.
+        try {
+            worker.join(INTERRUPT_GRACE_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
         if (worker.isAlive()) {
-            int left = queue.size();
-            if (left > 0) {
-                LOGGER.warn("Поток записи GLE не успел дренировать очередь за {} мс — отброшено записей: {}",
-                        DRAIN_TIMEOUT_MS, left);
-            }
-            worker.interrupt();
+            LOGGER.error("Поток записи GLE не завершился за {} мс после прерывания — "
+                    + "соединение закрывается принудительно.", INTERRUPT_GRACE_MS);
         }
     }
 }

@@ -53,7 +53,10 @@ public final class ContainerAccessListener {
         ResourceLocation key = BuiltInRegistries.BLOCK.getKey(state.getBlock());
         // Ванильные интерактивные блоки логирует VanillaInteractListener (точный набор GL);
         // здесь — только МОДОВЫЕ хранилища/терминалы (не minecraft), которых нет в наборе GL.
-        if (key == null || "minecraft".equals(key.getNamespace())) return;
+        // Раньше здесь стоял пропуск ванильных блоков: их логировал сам GriefLogger.
+        // После его поглощения (Путь E) пропуск означал, что открытие ванильного сундука/
+        // бочки/печи не пишется вообще. Оставляем только чёрные списки.
+        if (key == null) return;
         if (!isStorageAccess(level, pos, state)) return;
 
         String dimension = level.dimension().location().toString();

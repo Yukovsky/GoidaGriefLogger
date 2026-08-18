@@ -45,7 +45,7 @@ public final class SessionDao {
         final String sesSql  = ignore + " INTO sessions(time, user, level, x, y, z, action) "
                 + "VALUES(?, ?, ?, ?, ?, ?, ?)";
 
-        queue.submit(conn -> {
+        queue.submit((conn, sink) -> {
             Integer userId = ids.upsertUser(conn, e.playerUuid(), e.playerName());
             if (userId == null) {
                 LOGGER.warn("sessions: не удалось обеспечить пользователя uuid={} — сессия не записана",
@@ -53,23 +53,21 @@ public final class SessionDao {
                 return;
             }
             // usernames — таблица истории имён (time-series), кэшем не покрывается; пишем как GL.
-            try (var ps = conn.prepareStatement(nameSql)) {
-                ps.setLong(1, e.time());
-                ps.setString(2, e.playerUuid());
-                ps.setString(3, e.playerName());
-                ps.executeUpdate();
-            }
+            var names = sink.statement(nameSql);
+            names.setLong(1, e.time());
+            names.setString(2, e.playerUuid());
+            names.setString(3, e.playerName());
+            names.addBatch();
             int levelId = ids.levelId(conn, e.levelName());
-            try (var ps = conn.prepareStatement(sesSql)) {
-                ps.setLong(1, e.time());
-                ps.setInt(2, userId);
-                ps.setInt(3, levelId);
-                ps.setInt(4, e.x());
-                ps.setInt(5, e.y());
-                ps.setInt(6, e.z());
-                ps.setInt(7, e.action());
-                ps.executeUpdate();
-            }
+            var ps = sink.statement(sesSql);
+            ps.setLong(1, e.time());
+            ps.setInt(2, userId);
+            ps.setInt(3, levelId);
+            ps.setInt(4, e.x());
+            ps.setInt(5, e.y());
+            ps.setInt(6, e.z());
+            ps.setInt(7, e.action());
+            ps.addBatch();
         });
     }
 }

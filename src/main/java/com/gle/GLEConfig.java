@@ -94,7 +94,10 @@ public final class GLEConfig {
         b.comment("Что логировать").push("logging");
         enableExplosions     = b.comment("Взрывы (TNT, крипер, кристалл Края и т.д.)").define("enableExplosions", true);
         enablePistons        = b.comment("Перемещения и разрушения пистонами").define("enablePistons", true);
-        enableHoppers        = b.comment("Переносы предметов хопперами (много событий!)").define("enableHoppers", false);
+        enableHoppers        = b.comment("Переносы предметов хопперами (много событий!).",
+                "Реализуется через перехват capability ItemHandler, поэтому источник пишется как [AUTO]:",
+                "ванильный путь HopperBlockEntity.addItem в NeoForge практически не достигается.")
+                .define("enableHoppers", false);
         enableItemPickup     = b.comment("Подбор предметов игроком с земли (записывается в таблицу items GL).",
                 "GriefLogger 1.21.1 не логирует подбор сам (его architectury-мост к событию подбора не работает),",
                 "поэтому это делает GLE. Выключите, если у вас GL уже пишет подбор (во избежание дублей).")

@@ -26,9 +26,17 @@ public final class AutomationItemLogger {
 
     private static final ConcurrentHashMap<Long, Long> RECENT = new ConcurrentHashMap<>();
 
-    /** Включено ли универсальное отслеживание (используется хопперами/рукой для дедупа). */
+    /**
+     * Включён ли перехват предметов на capability.
+     * <p>
+     * Сюда же заведён {@code enableHoppers}: миксин в {@code HopperBlockEntity.addItem} ловит только
+     * ванильный ФОЛБЭК, а NeoForge для контейнеров с capability (то есть практически для всех)
+     * уходит раньше через {@code VanillaInventoryCodeHooks.insertHook/extractHook} — из-за этого
+     * {@code enableHoppers=true} сам по себе не давал НИ ОДНОЙ записи. Capability-путь их видит.
+     * Цена — источник пишется как {@code [AUTO]}: на этом уровне уже не видно, какой механизм тянул.
+     */
     public static boolean enabled() {
-        return GLEConfig.universalItemTracking.get();
+        return GLEConfig.universalItemTracking.get() || GLEConfig.enableHoppers.get();
     }
 
     /** Обернуть хендлер, сохранив его «форму» (modifiable или нет). */
@@ -53,13 +61,21 @@ public final class AutomationItemLogger {
         ItemLogger.log(level, pos, extracted, amount, GLActions.REMOVE_ITEM, "automation", SystemUsers.AUTO);
     }
 
+    private static long lastPrune = 0;
+
     private static boolean dup(BlockPos pos, ItemStack stack, boolean add) {
         int window = GLEConfig.deduplicationWindowMs.get();
         if (window <= 0) return false;
         long now = System.currentTimeMillis();
-        long key = pos.asLong() * 31 + stack.getItem().hashCode() * 2L + (add ? 1 : 0);
+        // Количество входит в ключ: два переноса РАЗНОГО объёма — разные события, схлопывать их нельзя.
+        long key = pos.asLong() * 31 + stack.getItem().hashCode() * 2L + stack.getCount() * 7L + (add ? 1 : 0);
         Long last = RECENT.put(key, now);
-        if (RECENT.size() > 8192) RECENT.entrySet().removeIf(e -> now - e.getValue() > window * 4L);
+        // Прунинг по ВРЕМЕНИ, а не только при переполнении: раньше ключи ниже порога 8192 жили
+        // до конца жизни процесса.
+        if (now - lastPrune > 30_000L || RECENT.size() > 8192) {
+            lastPrune = now;
+            RECENT.entrySet().removeIf(e -> now - e.getValue() > Math.max(window * 4L, 1000L));
+        }
         return last != null && (now - last) < window;
     }
 }

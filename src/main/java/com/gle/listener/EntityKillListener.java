@@ -34,6 +34,11 @@ public final class EntityKillListener {
 
         String dimension = level.dimension().location().toString();
         if (contains(dimension)) return;
+        // Чёрные списки применяются как во всех соседних листенерах: раньше убийства
+        // игнорировали blockBlacklist/modBlacklist и не поддавались фильтрации вообще.
+        if (inList(com.gle.GLEConfig.blockBlacklist.get(), entityName)
+                || inList(com.gle.GLEConfig.blockBlacklist.get(), entityKey.getPath())) return;
+        if (inList(com.gle.GLEConfig.modBlacklist.get(), entityKey.getNamespace())) return;
 
         BlockPos pos = victim.blockPosition();
         GLStorage.get().blocks().insertEntityKill(
@@ -42,6 +47,10 @@ public final class EntityKillListener {
                 dimension,
                 pos.getX(), pos.getY(), pos.getZ(),
                 entityName);
+    }
+
+    private static boolean inList(java.util.List<? extends String> list, String value) {
+        return list != null && list.contains(value);
     }
 
     private static boolean contains(String dimension) {

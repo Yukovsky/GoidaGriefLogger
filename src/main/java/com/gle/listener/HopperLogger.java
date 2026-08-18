@@ -29,6 +29,7 @@ public final class HopperLogger {
     private HopperLogger() {}
 
     private static final ConcurrentHashMap<String, Long> RECENT = new ConcurrentHashMap<>();
+    private static long lastPrune = 0;
 
     /** Вызывается из миксина: предмет {@code movedSnapshot} (с реально перенесённым количеством). */
     public static void onTransfer(@Nullable Container source, Container destination, ItemStack movedSnapshot) {
@@ -74,10 +75,14 @@ public final class HopperLogger {
         if (window <= 0) return false;
         long now = System.currentTimeMillis();
         String key = (from == null ? "?" : from.asLong()) + ">" + (to == null ? "?" : to.asLong())
-                + ":" + stack.getItem();
+                + ":" + stack.getItem() + "x" + stack.getCount();
         Long last = RECENT.put(key, now);
-        // Периодическая очистка старых ключей, чтобы карта не росла бесконечно.
-        if (RECENT.size() > 4096) RECENT.entrySet().removeIf(e -> now - e.getValue() > window * 4L);
+        // Очистка по ВРЕМЕНИ, а не только при переполнении: ниже порога 4096 ключи раньше
+        // жили до конца жизни процесса.
+        if (now - lastPrune > 30_000L || RECENT.size() > 4096) {
+            lastPrune = now;
+            RECENT.entrySet().removeIf(e -> now - e.getValue() > Math.max(window * 4L, 1000L));
+        }
         return last != null && (now - last) < window;
     }
 }

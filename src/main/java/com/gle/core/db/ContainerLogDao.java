@@ -57,28 +57,27 @@ public final class ContainerLogDao {
         final String insSql = "INSERT INTO " + table + "(time, user, level, x, y, z, type, data, amount, action) "
                 + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, e.userUuid());
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, e.userUuid());
             if (userId == null) {
                 LOGGER.debug("{}: пропуск — нет пользователя uuid={}", table, e.userUuid());
                 return;
             }
             int levelId = ids.levelId(conn, e.levelName());
             int materialId = ids.materialId(conn, e.material());
-            try (PreparedStatement c = conn.prepareStatement(insSql)) {
-                c.setLong(1, e.time());
-                c.setInt(2, userId);
-                c.setInt(3, levelId);
-                c.setInt(4, e.x());
-                c.setInt(5, e.y());
-                c.setInt(6, e.z());
-                c.setInt(7, materialId);
-                if (e.data() != null) c.setBytes(8, e.data());
-                else c.setNull(8, Types.BLOB);
-                c.setInt(9, e.amount());
-                c.setInt(10, e.action());
-                c.executeUpdate();
-            }
+            PreparedStatement c = sink.statement(insSql);
+            c.setLong(1, e.time());
+            c.setInt(2, userId);
+            c.setInt(3, levelId);
+            c.setInt(4, e.x());
+            c.setInt(5, e.y());
+            c.setInt(6, e.z());
+            c.setInt(7, materialId);
+            if (e.data() != null) c.setBytes(8, e.data());
+            else c.setNull(8, Types.BLOB);
+            c.setInt(9, e.amount());
+            c.setInt(10, e.action());
+            c.addBatch();
         });
     }
 }

@@ -13,7 +13,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.EnderChestBlock;
@@ -47,10 +46,13 @@ public final class EnderChestListener {
     private static final Map<UUID, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<UUID, OpenSnapshot> OPEN = new ConcurrentHashMap<>();
 
+    /** Игрок должен быть рядом с сундуком, снимок которого мы берём. */
+    private static final double MAX_REACH_SQR = 8.0 * 8.0;
+
     @SubscribeEvent
     public void onRightClick(PlayerInteractEvent.RightClickBlock event) {
         if (!GLEConfig.enableContainerTransactions.get()) return;
-        if (event.getHand() != InteractionHand.MAIN_HAND) return;
+        // Обе руки: эндер-сундук открывается и вторичной рукой (см. ContainerTransactionListener).
         if (!(event.getLevel() instanceof ServerLevel level)) return;
         Player player = event.getEntity();
         if (!(player instanceof ServerPlayer) || player instanceof FakePlayer) return;
@@ -64,7 +66,11 @@ public final class EnderChestListener {
     public void onOpen(PlayerContainerEvent.Open event) {
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
         Pending pend = PENDING.remove(sp.getUUID());
-        if (pend == null || System.currentTimeMillis() - pend.time() > 2000) return;
+        if (pend == null) return;
+        // Вместо таймаута «2 секунды» (терял транзакцию при любом лаге сервера) — проверка
+        // по существу: тот же мир и игрок рядом с сундуком.
+        if (!pend.dim().equals(sp.level().dimension().location().toString())) return;
+        if (sp.blockPosition().distSqr(pend.pos()) > MAX_REACH_SQR) return;
         Container ender = sp.getEnderChestInventory();
         OPEN.put(sp.getUUID(), new OpenSnapshot(pend.dim(), pend.pos(), snapshot(ender, sp.level().registryAccess())));
     }
@@ -72,6 +78,20 @@ public final class EnderChestListener {
     @SubscribeEvent
     public void onClose(PlayerContainerEvent.Close event) {
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
+        finish(sp);
+    }
+
+    /**
+     * Выход игрока с открытым эндер-сундуком: {@link PlayerContainerEvent.Close} может не прийти,
+     * и раньше снимок оставался в карте навсегда — утечка плюс потерянная транзакция.
+     */
+    @SubscribeEvent
+    public void onLogout(net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event) {
+        PENDING.remove(event.getEntity().getUUID());
+        if (event.getEntity() instanceof ServerPlayer sp) finish(sp);
+    }
+
+    private static void finish(ServerPlayer sp) {
         OpenSnapshot snap = OPEN.remove(sp.getUUID());
         if (snap == null || !GLStorage.isReady()) return;
         Map<String, ItemStack> after = snapshot(sp.getEnderChestInventory(), sp.level().registryAccess());

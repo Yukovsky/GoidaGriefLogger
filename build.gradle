@@ -120,3 +120,8 @@ neoForge.ideSyncTask generateModMetadata
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
+
+// Печать runtime-classpath для автономной самопроверки БД (см. tools/GLSelfCheck.java).
+tasks.register('printRuntimeClasspath') {
+    doLast { println sourceSets.main.runtimeClasspath.asPath }
+}

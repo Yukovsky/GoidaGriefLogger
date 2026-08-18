@@ -63,8 +63,8 @@ public final class TextLogDao {
     private void insertInto(String table, TextEntry e) {
         final String message = truncate(e.message());
 
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, e.userUuid());
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, e.userUuid());
             if (userId == null) {
                 LOGGER.debug("{}: пропуск — нет пользователя uuid={}", table, e.userUuid());
                 return;
@@ -73,16 +73,15 @@ public final class TextLogDao {
             String col = messageColumn.computeIfAbsent(table, t -> resolveMessageColumn(conn, t));
             String insSql = "INSERT INTO " + table + "(time, user, level, x, y, z, " + col + ") "
                     + "VALUES(?, ?, ?, ?, ?, ?, ?)";
-            try (PreparedStatement ps = conn.prepareStatement(insSql)) {
-                ps.setLong(1, e.time());
-                ps.setInt(2, userId);
-                ps.setInt(3, levelId);
-                ps.setInt(4, e.x());
-                ps.setInt(5, e.y());
-                ps.setInt(6, e.z());
-                ps.setString(7, message);
-                ps.executeUpdate();
-            }
+            PreparedStatement ps = sink.statement(insSql);
+            ps.setLong(1, e.time());
+            ps.setInt(2, userId);
+            ps.setInt(3, levelId);
+            ps.setInt(4, e.x());
+            ps.setInt(5, e.y());
+            ps.setInt(6, e.z());
+            ps.setString(7, message);
+            ps.addBatch();
         });
     }
 

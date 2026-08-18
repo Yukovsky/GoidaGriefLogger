@@ -14,9 +14,14 @@ public final class GLMaterials {
 
     private GLMaterials() {}
 
+    private static final String VANILLA = "minecraft:";
+
     /** Имя материала/предмета в формате GriefLogger. */
     public static String normalize(ResourceLocation location) {
         if (location == null) return "air";
-        return location.toString().replace("minecraft:", "");
+        String id = location.toString();
+        // Именно startsWith, а не replace: replace вырезал подстроку в ЛЮБОЙ позиции, и id мода,
+        // содержащий "minecraft:", искажался (напр. "notminecraft:foo" -> "notfoo").
+        return id.startsWith(VANILLA) ? id.substring(VANILLA.length()) : id;
     }
 }

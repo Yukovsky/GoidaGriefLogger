@@ -25,6 +25,9 @@ public final class SessionListener {
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             record(player, GLActions.SESSION_QUIT);
+            // Иначе набор рос бы вечно, а режим инспектора неожиданно оказывался включён
+            // при следующем входе.
+            com.gle.core.command.InspectManager.clear(player.getUUID());
         }
     }
 

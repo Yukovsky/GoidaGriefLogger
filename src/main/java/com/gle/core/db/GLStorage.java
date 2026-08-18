@@ -59,11 +59,14 @@ public final class GLStorage {
             LOGGER.error("Не удалось подключиться к хранилищу — запись отключена.");
             return false;
         }
-        WriteQueue queue = new WriteQueue(db, asyncQueueSize);
-        queue.start();
-
-        GLStorage storage = new GLStorage(db, queue);
+        // Миграция ДО запуска писателя: Connection не потокобезопасен, а раньше поток записи
+        // уже жил и мог работать с тем же соединением, на котором шёл ALTER TABLE.
         new SchemaMigrator(db).migrate();
+
+        WriteQueue queue = new WriteQueue(db, asyncQueueSize);
+        // Конструктор вешает хук сброса IdCache — ставим его до того, как поток начнёт разгребать.
+        GLStorage storage = new GLStorage(db, queue);
+        queue.start();
         storage.ready = true;
         instance = storage;
         registerShutdownHook();

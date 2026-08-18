@@ -20,6 +20,7 @@ tmp/
 research/
 
 # Локальные логи сборки
+logs/
 build_log.txt
 message*.txt
 

@@ -78,10 +78,13 @@ public final class SchemaMigrator {
         // Горячие таблицы
         String tInt  = my ? "int" : "integer";
         String tTime = my ? "bigint" : "integer";
-        exec(c, "CREATE TABLE IF NOT EXISTS blocks (time " + tTime + " NOT NULL, user " + tInt + " NOT NULL, level " + tInt + " NOT NULL, "
+        // blocks и containers получают суррогатный PK: без него откат мог помечать rolled_back
+        // только «по фильтру» (все совпавшие строки), а не по фактически применённым.
+        String pkCol = my ? "id int PRIMARY KEY AUTO_INCREMENT, " : "id integer PRIMARY KEY, ";
+        exec(c, "CREATE TABLE IF NOT EXISTS blocks (" + pkCol + "time " + tTime + " NOT NULL, user " + tInt + " NOT NULL, level " + tInt + " NOT NULL, "
                 + "x " + tInt + " NOT NULL, y " + tInt + " NOT NULL, z " + tInt + " NOT NULL, type " + tInt + " NOT NULL, action " + tInt + " NOT NULL, "
                 + "FOREIGN KEY(user) REFERENCES users(id), FOREIGN KEY(level) REFERENCES levels(id), FOREIGN KEY(type) REFERENCES materials(id))" + engine);
-        exec(c, "CREATE TABLE IF NOT EXISTS containers (time " + tTime + " NOT NULL, user " + tInt + " NOT NULL, level " + tInt + " NOT NULL, "
+        exec(c, "CREATE TABLE IF NOT EXISTS containers (" + pkCol + "time " + tTime + " NOT NULL, user " + tInt + " NOT NULL, level " + tInt + " NOT NULL, "
                 + "x " + tInt + " NOT NULL, y " + tInt + " NOT NULL, z " + tInt + " NOT NULL, type " + tInt + " NOT NULL, data blob DEFAULT NULL, amount " + tInt + " NOT NULL, action " + tInt + " NOT NULL, "
                 + "FOREIGN KEY(user) REFERENCES users(id), FOREIGN KEY(level) REFERENCES levels(id), FOREIGN KEY(type) REFERENCES materials(id))" + engine);
         exec(c, "CREATE TABLE IF NOT EXISTS items (time " + tTime + " NOT NULL, user " + tInt + " NOT NULL, level " + tInt + " NOT NULL, "
@@ -158,13 +161,21 @@ public final class SchemaMigrator {
         addColumnIfMissing(c, "containers", "rolled_back", "INTEGER DEFAULT 0");
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ")
                 + "idx_blocks_source ON blocks(source_type)");
+        // БД, созданная до появления PK: откат не сможет помечать строки построчно.
+        for (String t : new String[]{"blocks", "containers"}) {
+            if (!columnExists(c, t, "id")) {
+                LOGGER.error("Таблица {} создана без колонки id (БД старее текущей версии). "
+                        + "Пометка rolled_back и корректный повторный откат работать не будут. "
+                        + "Требуется пересоздание БД.", t);
+            }
+        }
     }
 
     private void addColumnIfMissing(Connection c, String table, String column, String type) throws SQLException {
         if (columnExists(c, table, column)) return;
         try (Statement st = c.createStatement()) {
             st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
-            LOGGER.info("blocks: добавлена колонка {} {}", column, type);
+            LOGGER.info("{}: добавлена колонка {} {}", table, column, type);
         } catch (SQLException e) {
             // Возможна гонка с другой инстанцией / уже добавлено — не фатально.
             LOGGER.warn("Не удалось добавить колонку {}.{} ({})", table, column, e.getMessage());

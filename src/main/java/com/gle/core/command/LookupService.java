@@ -1,5 +1,6 @@
 package com.gle.core.command;
 
+import com.gle.core.GLActions;
 import com.gle.core.db.GLStorage;
 import com.gle.core.rollback.RollbackFilter;
 import net.minecraft.ChatFormatting;
@@ -34,6 +35,8 @@ public final class LookupService {
     private LookupService() {}
 
     private static final int FETCH = 200;     // сколько строк тянуть
+    /** Имя объекта строки blocks: материал, а для строк убийства — имя сущности. */
+    private static final String NAME_COL = "COALESCE(m.name, e.name)";
     private static final int PAGE_SIZE = 8;   // строк на страницу в чате
 
     private static final ExecutorService EXEC = Executors.newSingleThreadExecutor(r -> {
@@ -60,9 +63,13 @@ public final class LookupService {
                 // Собственные таблицы GLE — иначе таблички/рамки/смерть не видны в lookup.
                 queryFrames(conn, f, rows); // у рамок есть предмет — фильтр по материалу применяется
                 if (!materialOnly) {
-                    querySessions(conn, f, rows);
                     querySigns(conn, f, rows);
-                    queryDeaths(conn, f, rows);
+                    // sessions/deaths привязаны к позиции ИГРОКА, а не к объекту. В инспекции
+                    // одной клетки они давали «вошёл/вышел» вместо истории блока.
+                    if (f.includePlayerEvents) {
+                        querySessions(conn, f, rows);
+                        queryDeaths(conn, f, rows);
+                    }
                 }
                 if (!f.actionsInclude.isEmpty() || !f.actionsExclude.isEmpty()) {
                     rows.removeIf(r -> !com.gle.core.rollback.ActionFilters.allows(f, r.category()));
@@ -93,6 +100,7 @@ public final class LookupService {
         f.timeTo = System.currentTimeMillis();
         f.levelName = level.dimension().location().toString();
         f.setBox(pos.getX(), pos.getY(), pos.getZ(), 0);
+        f.includePlayerEvents = false; // история объекта, а не того, кто рядом логинился
         run(server, f, player);
     }
 
@@ -152,13 +160,18 @@ public final class LookupService {
     // --- запросы ---
 
     private static void queryBlocks(Connection conn, RollbackFilter f, List<Row> rows) throws SQLException {
+        // Соглашение GriefLogger: у строк убийства (action=KILL_ENTITY) колонка blocks.type
+        // ссылается на entities.id, а НЕ на materials.id (см. BlockLogDao.insertEntityKill).
+        // Безусловный join на materials давал случайное имя предмета вместо имени моба.
         StringBuilder sql = new StringBuilder(
-                "SELECT b.time, u.name, b.action, m.name, b.x, b.y, b.z, b.rolled_back, b.source_type FROM blocks b "
+                "SELECT b.time, u.name, b.action, " + NAME_COL + ", b.x, b.y, b.z, b.rolled_back, b.source_type FROM blocks b "
                 + "INNER JOIN levels l ON b.level=l.id LEFT JOIN users u ON b.user=u.id "
-                + "LEFT JOIN materials m ON b.type=m.id WHERE " + levelClause(f) + " AND b.time BETWEEN ? AND ? "
+                + "LEFT JOIN materials m ON b.type=m.id AND b.action <> " + GLActions.KILL_ENTITY + " "
+                + "LEFT JOIN entities e ON b.type=e.id AND b.action = " + GLActions.KILL_ENTITY + " "
+                + "WHERE " + levelClause(f) + " AND b.time BETWEEN ? AND ? "
                 + "AND b.x BETWEEN ? AND ? AND b.y BETWEEN ? AND ? AND b.z BETWEEN ? AND ?");
         playerClauses(sql, f, "b");
-        materialSub(sql, f);
+        materialSub(sql, f, NAME_COL);
         sql.append(" ORDER BY b.time DESC LIMIT ").append(FETCH);
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             int i = bindBox(ps, f);
@@ -340,7 +353,12 @@ public final class LookupService {
     }
 
     private static void materialSub(StringBuilder sql, RollbackFilter f) {
-        sql.append(com.gle.core.rollback.MaterialMatcher.whereFragment("m.name", f.includeMaterials, f.excludeMaterials));
+        materialSub(sql, f, "m.name");
+    }
+
+    /** Фильтр по материалу на произвольном выражении имени (для blocks — COALESCE материал/сущность). */
+    private static void materialSub(StringBuilder sql, RollbackFilter f, String col) {
+        sql.append(com.gle.core.rollback.MaterialMatcher.whereFragment(col, f.includeMaterials, f.excludeMaterials));
     }
 
     /** WHERE-фрагмент по миру: либо равенство имени уровня (с биндом), либо «всё» без бинда. */

@@ -27,6 +27,12 @@ public final class RollbackFilter {
 
     public boolean includeBlocks = true;
     public boolean includeItems = true;
+    /**
+     * Включать события, привязанные к позиции ИГРОКА (входы/выходы, смерти), а не к объекту.
+     * {@code /gl lookup} — да; {@code /gl inspect} по одной клетке — нет, иначе логин на этой
+     * координате вытесняет настоящую историю блока.
+     */
+    public boolean includePlayerEvents = true;
 
     /** Радиус «global» — без пространственных границ (бокс раскрыт на весь диапазон). */
     public boolean globalRadius = false;
@@ -73,6 +79,7 @@ public final class RollbackFilter {
         c.maxX = maxX; c.maxY = maxY; c.maxZ = maxZ;
         c.radius = radius; c.centerX = centerX; c.centerY = centerY; c.centerZ = centerZ;
         c.includeBlocks = includeBlocks; c.includeItems = includeItems;
+        c.includePlayerEvents = includePlayerEvents;
         c.globalRadius = globalRadius; c.allWorlds = allWorlds;
         c.sourceType = sourceType;
         c.includeMaterials.addAll(includeMaterials);

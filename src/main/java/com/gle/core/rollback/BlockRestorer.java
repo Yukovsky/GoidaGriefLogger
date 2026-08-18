@@ -14,6 +14,7 @@ import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -79,7 +80,10 @@ public final class BlockRestorer {
         if (restoringBrokenBlock && beTag != null) {
             restoreBlockEntity(level, pos, beTag);
         }
-        level.sendBlockUpdated(pos, previous, target, Block.UPDATE_CLIENTS);
+        // sendBlockUpdated здесь не нужен: обе ветки выше зовут setBlock с флагом, содержащим
+        // UPDATE_CLIENTS, а он уведомляет клиентов сам. Явный вызов был дублирующим пакетом
+        // на КАЖДЫЙ откаченный блок. Данные BlockEntity уходят тем же обновлением: позиция
+        // зарегистрирована сменой состояния, а рассылка идёт в конце тика — уже после загрузки NBT.
         return true;
     }
 
@@ -137,11 +141,30 @@ public final class BlockRestorer {
         return Blocks.AIR.defaultBlockState(); // BREAK → убрать
     }
 
-    /** Очистить содержимое контейнера на позиции, чтобы при замене блока ничего не выпало. */
+    /**
+     * Очистить содержимое контейнера на позиции, чтобы при замене блока ничего не выпало.
+     * <p>
+     * Кроме {@link Container} обрабатываем и capability-хендлер: модовые вместилища (Create Item
+     * Vault, Sophisticated Backpacks, Tom's Storage) {@code Container} не реализуют, и их
+     * содержимое высыпалось на землю при каждом откате.
+     */
     public static void clearContainer(ServerLevel level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
         if (be instanceof Container c) {
-            try { c.clearContent(); } catch (Exception ignored) {}
+            try { c.clearContent(); return; } catch (Exception ignored) {}
+        }
+        try {
+            var handler = level.getCapability(
+                    net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, pos, null);
+            if (handler == null) return;
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack in = handler.getStackInSlot(slot);
+                while (!in.isEmpty() && !handler.extractItem(slot, in.getCount(), false).isEmpty()) {
+                    in = handler.getStackInSlot(slot);
+                }
+            }
+        } catch (Exception ignored) {
+            // хендлер может быть только на чтение — тогда очистить нечего
         }
     }
 

@@ -28,6 +28,7 @@ public abstract class MobGriefMixin {
 
     @Inject(method = "aiStep", at = @At("RETURN"), require = 0)
     private void gle$aiStepReturn(CallbackInfo ci) {
-        GriefContext.exitEntity();
+        // Передаём себя: HEAD мог не сработать (конфиг выключен) — тогда снимать нечего.
+        GriefContext.exitEntity((Mob) (Object) this);
     }
 }

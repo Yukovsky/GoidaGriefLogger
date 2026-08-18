@@ -6,6 +6,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -22,7 +23,12 @@ public final class RollbackJob {
     /** Колбэк финализации (выполняется асинхронно вне главного потока). */
     @FunctionalInterface
     public interface Completion {
-        void finish(String status, int affectedBlocks, int affectedContainers, int failed);
+        /**
+         * @param blockIds     id строк {@code blocks}, к которым восстановление РЕАЛЬНО применилось
+         * @param containerIds id строк {@code containers}, к которым восстановление РЕАЛЬНО применилось
+         */
+        void finish(String status, int affectedBlocks, int affectedContainers, int failed,
+                    List<Long> blockIds, List<Long> containerIds);
     }
 
     private final long jobId;
@@ -47,6 +53,21 @@ public final class RollbackJob {
      * множество уже заполнено.
      */
     private final Set<Long> snapshotRestored = new HashSet<>();
+
+    /**
+     * id строк, к которым восстановление реально применилось. Только они помечаются {@code rolled_back}:
+     * строка, для которой {@code apply} вернула false (контейнер исчез, блок не резолвится), должна
+     * остаться неотмеченной, чтобы повторный откат её добрал.
+     */
+    private final List<Long> appliedBlockIds = new ArrayList<>();
+    private final List<Long> appliedContainerIds = new ArrayList<>();
+
+    /**
+     * Позиции, которые этот же откат превратил в воздух (реверс PLACE_BLOCK). Дельты
+     * {@code containers} по ним применить физически невозможно — контейнера там больше нет.
+     * Это не ошибка, а прямое следствие отката, поэтому в счётчик {@code failed} они не идут.
+     */
+    private final Set<Long> clearedPositions = new HashSet<>();
 
     public RollbackJob(long jobId, boolean reverse, ServerLevel level,
                        List<RollbackData.BlockChange> blocks, List<RollbackData.ItemChange> items,
@@ -74,9 +95,13 @@ public final class RollbackJob {
             RollbackData.BlockChange ch = blocks.get(blockIdx++);
             if (BlockRestorer.apply(level, ch, reverse)) {
                 affectedBlocks++;
+                appliedBlockIds.add(ch.id());
                 // Откат слома контейнера со снимком NBT уже точно восстановил его содержимое.
                 if (reverse && ch.action() == GLActions.BREAK_BLOCK && ch.nbt() != null) {
                     snapshotRestored.add(new BlockPos(ch.x(), ch.y(), ch.z()).asLong());
+                }
+                if (reverse && ch.action() == GLActions.PLACE_BLOCK) {
+                    clearedPositions.add(new BlockPos(ch.x(), ch.y(), ch.z()).asLong());
                 }
             } else failed++;
             budget--;
@@ -85,8 +110,22 @@ public final class RollbackJob {
             RollbackData.ItemChange ch = items.get(itemIdx++);
             budget--;
             // Содержимое этой позиции уже восстановлено снимком блока — дельту не применяем (без двойного учёта).
-            if (reverse && snapshotRestored.contains(new BlockPos(ch.x(), ch.y(), ch.z()).asLong())) continue;
-            if (ItemRestorer.apply(level, ch, reverse)) affectedContainers++; else failed++;
+            long posKey = new BlockPos(ch.x(), ch.y(), ch.z()).asLong();
+            if (reverse && snapshotRestored.contains(posKey)) {
+                // Содержимое уже восстановлено снимком блока — дельту не применяем, но строку
+                // помечаем откатанной: её эффект в мире отменён, повторять его не нужно.
+                appliedContainerIds.add(ch.id());
+                continue;
+            }
+            if (reverse && clearedPositions.contains(posKey)) {
+                // Контейнер убран этим же откатом — его содержимое больше не имеет смысла.
+                appliedContainerIds.add(ch.id());
+                continue;
+            }
+            if (ItemRestorer.apply(level, ch, reverse)) {
+                affectedContainers++;
+                appliedContainerIds.add(ch.id());
+            } else failed++;
         }
 
         if (++tickCounter % GLEConfig.progressIntervalTicks.get() == 0) {
@@ -103,7 +142,8 @@ public final class RollbackJob {
 
     private void finish(String status) {
         done = true;
-        completion.finish(status, affectedBlocks, affectedContainers, failed);
+        completion.finish(status, affectedBlocks, affectedContainers, failed,
+                List.copyOf(appliedBlockIds), List.copyOf(appliedContainerIds));
         feedback.accept(Component.literal((reverse ? "§a[GLE] Откат" : "§a[GLE] Restore") + " завершён ("
                 + status + "): блоков " + affectedBlocks + ", контейнеров " + affectedContainers
                 + (failed > 0 ? ", §cошибок " + failed : "") + "§a."));

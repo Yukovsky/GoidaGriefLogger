@@ -108,8 +108,8 @@ public final class RollbackManager {
                 List<RollbackData.ItemChange> items;
                 long jobId;
                 try (Connection conn = GLStorage.get().database().newConnection()) {
-                    blocks = filter.includeBlocks ? RollbackData.queryBlocks(conn, filter) : List.of();
-                    items = filter.includeItems ? RollbackData.queryItems(conn, filter) : List.of();
+                    blocks = filter.includeBlocks ? RollbackData.queryBlocks(conn, filter, reverse) : List.of();
+                    items = filter.includeItems ? RollbackData.queryItems(conn, filter, reverse) : List.of();
                     if (blocks.isEmpty() && items.isEmpty()) {
                         if (!quietIfEmpty) server.execute(() -> feedback.accept(Component.literal(
                                 "§7Нечего " + (reverse ? "откатывать" : "восстанавливать") + " по фильтрам.")));
@@ -121,8 +121,8 @@ public final class RollbackManager {
                 final List<RollbackData.BlockChange> fBlocks = blocks;
                 final List<RollbackData.ItemChange> fItems = items;
                 server.execute(() -> {
-                    RollbackJob.Completion done = (status, ab, ac, failed) ->
-                            finalizeJob(fJobId, filter, reverse, status, ab, ac, failed);
+                    RollbackJob.Completion done = (status, ab, ac, failed, blockIds, containerIds) ->
+                            finalizeJob(fJobId, reverse, status, ab, ac, failed, blockIds, containerIds);
                     RollbackJob job = new RollbackJob(fJobId, reverse, level, fBlocks, fItems, feedback, done);
                     active.add(job);
                     executorOf.put(fJobId, executor);
@@ -138,15 +138,15 @@ public final class RollbackManager {
     }
 
     /** Финализация (вызывается на главном потоке из job.finish) — переносим в фон. */
-    private void finalizeJob(long jobId, RollbackFilter filter, boolean reverse,
-                             String status, int affectedBlocks, int affectedContainers, int failed) {
+    private void finalizeJob(long jobId, boolean reverse,
+                             String status, int affectedBlocks, int affectedContainers, int failed,
+                             java.util.List<Long> blockIds, java.util.List<Long> containerIds) {
         dbExecutor.submit(() -> {
             try (Connection conn = GLStorage.get().database().newConnection()) {
-                if ("completed".equals(status)) {
-                    int flag = reverse ? 1 : 0; // откат помечает rolled_back=1, restore снимает
-                    if (filter.includeBlocks) RollbackData.markBlocksRolledBack(conn, filter, flag);
-                    if (filter.includeItems) RollbackData.markContainersRolledBack(conn, filter, flag);
-                }
+                // Помечаем даже прерванное задание: то, что уже применилось к миру, откатанным и осталось.
+                int flag = reverse ? 1 : 0; // откат помечает rolled_back=1, restore снимает
+                RollbackData.markRolledBack(conn, "blocks", blockIds, flag);
+                RollbackData.markRolledBack(conn, "containers", containerIds, flag);
                 RollbackJobsDao.finishJob(conn, jobId, status, affectedBlocks, affectedContainers, failed);
             } catch (Exception e) {
                 LOGGER.warn("Не удалось финализировать job #{}: {}", jobId, e.getMessage());

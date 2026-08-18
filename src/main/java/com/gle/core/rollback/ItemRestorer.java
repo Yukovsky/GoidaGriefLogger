@@ -10,7 +10,9 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.wrapper.InvWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,7 +35,12 @@ public final class ItemRestorer {
      */
     public static boolean apply(ServerLevel level, RollbackData.ItemChange change, boolean reverse) {
         BlockPos pos = new BlockPos(change.x(), change.y(), change.z());
-        if (!(level.getBlockEntity(pos) instanceof Container container)) return false;
+        // Захват содержимого идёт через capability ItemHandler, поэтому и восстановление обязано.
+        // Раньше здесь стоял только `instanceof Container`, а модовые вместилища (Create Item Vault,
+        // Sophisticated Backpacks, Tom's Storage) Container НЕ реализуют — для них откат молча
+        // возвращал false, то есть «откат контейнеров» для них просто не работал.
+        IItemHandler handler = handlerAt(level, pos);
+        if (handler == null) return false;
 
         ItemStack stack = reconstruct(level, change);
         if (stack.isEmpty()) return false;
@@ -42,7 +49,24 @@ public final class ItemRestorer {
         boolean wasAdd = change.action() == GLActions.ADD_ITEM;
         // откат: добавление → убрать, изъятие → вернуть. restore: наоборот.
         boolean removeNow = reverse == wasAdd;
-        return removeNow ? removeMatching(container, stack, change.amount()) : insert(container, stack);
+        return removeNow
+                ? removeMatching(handler, stack, change.amount())
+                : insert(level, pos, handler, stack);
+    }
+
+    /**
+     * Предметный хендлер на позиции: сначала capability (покрывает и ванильные контейнеры —
+     * NeoForge регистрирует ItemHandler и для них), затем — {@link Container} через обёртку.
+     */
+    @org.jetbrains.annotations.Nullable
+    private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
+        try {
+            IItemHandler cap = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
+            if (cap != null) return cap;
+        } catch (Exception ignored) {
+            // капability может бросить у кривых модовых блоков — падаем на Container ниже
+        }
+        return level.getBlockEntity(pos) instanceof Container c ? new InvWrapper(c) : null;
     }
 
     private static ItemStack reconstruct(ServerLevel level, RollbackData.ItemChange change) {
@@ -65,25 +89,32 @@ public final class ItemRestorer {
         return stack;
     }
 
-    private static boolean removeMatching(Container container, ItemStack stack, int amount) {
+    private static boolean removeMatching(IItemHandler handler, ItemStack stack, int amount) {
         int remaining = amount;
-        for (int slot = 0; slot < container.getContainerSize() && remaining > 0; slot++) {
-            ItemStack inSlot = container.getItem(slot);
+        for (int slot = 0; slot < handler.getSlots() && remaining > 0; slot++) {
+            ItemStack inSlot = handler.getStackInSlot(slot);
             if (inSlot.isEmpty()) continue;
-            if (ItemStack.isSameItemSameComponents(inSlot, stack)) {
-                int take = Math.min(remaining, inSlot.getCount());
-                inSlot.shrink(take);
-                container.setItem(slot, inSlot.isEmpty() ? ItemStack.EMPTY : inSlot);
-                remaining -= take;
-            }
+            if (!ItemStack.isSameItemSameComponents(inSlot, stack)) continue;
+            ItemStack taken = handler.extractItem(slot, remaining, false);
+            remaining -= taken.getCount();
         }
-        container.setChanged();
         return remaining < amount; // хоть что-то удалили
     }
 
-    private static boolean insert(Container container, ItemStack stack) {
+    private static boolean insert(ServerLevel level, BlockPos pos, IItemHandler handler, ItemStack stack) {
         ItemStack rest = stack.copy();
-        // Сначала докладываем в существующие стаки
+        for (int slot = 0; slot < handler.getSlots() && !rest.isEmpty(); slot++) {
+            rest = handler.insertItem(slot, rest, false);
+        }
+        if (rest.isEmpty()) return true;
+        // Хендлер может отказать по правилам слота (классика — слот результата печи: положить туда
+        // ничего нельзя). Для откатов это неверно: мы возвращаем то, что там РЕАЛЬНО лежало.
+        // Поэтому остаток дожимаем напрямую через Container, как делала прежняя реализация.
+        return forceIntoContainer(level, pos, rest);
+    }
+
+    private static boolean forceIntoContainer(ServerLevel level, BlockPos pos, ItemStack rest) {
+        if (!(level.getBlockEntity(pos) instanceof Container container)) return false;
         for (int slot = 0; slot < container.getContainerSize() && !rest.isEmpty(); slot++) {
             ItemStack inSlot = container.getItem(slot);
             if (!inSlot.isEmpty() && ItemStack.isSameItemSameComponents(inSlot, rest)) {
@@ -96,7 +127,6 @@ public final class ItemRestorer {
                 }
             }
         }
-        // Затем в пустые слоты
         for (int slot = 0; slot < container.getContainerSize() && !rest.isEmpty(); slot++) {
             if (container.getItem(slot).isEmpty()) {
                 int max = Math.min(container.getMaxStackSize(), rest.getMaxStackSize());

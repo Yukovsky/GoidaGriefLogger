@@ -108,6 +108,27 @@ public final class IdCache {
     }
 
     /**
+     * id пользователя по uuid, создавая строку при отсутствии.
+     * <p>
+     * Раньше горячие DAO звали {@link #userId} и при {@code null} МОЛЧА выбрасывали событие: строку
+     * {@code users} создавал только вход игрока через {@code SessionDao}. Любой uuid вне «системные
+     * юзеры + залогинившиеся игроки» терял события без следа. CoreProtect в такой ситуации всегда
+     * заводит пользователя — делаем так же.
+     * <p>
+     * Имя: для системных uuid берётся из {@link com.gle.core.SystemUsers}, иначе ставится временная
+     * метка из префикса uuid — вход игрока починит её через {@link #upsertUser}.
+     */
+    public Integer userIdOrCreate(Connection c, String uuid) throws SQLException {
+        if (uuid == null) return null;
+        Integer id = userId(c, uuid);
+        if (id != null) return id;
+        String known = com.gle.core.SystemUsers.nameOf(uuid);
+        // users.name — varchar(16), поэтому плейсхолдер обязан быть коротким.
+        String name = known != null ? known : "?" + uuid.substring(0, Math.min(8, uuid.length()));
+        return upsertUser(c, uuid, name);
+    }
+
+    /**
      * Гарантировать пользователя ({@code INSERT IGNORE users(name, uuid)}) и вернуть его id.
      * Используется при входе игрока ({@code SessionDao}). История имён ({@code usernames}) — забота
      * вызывающего, кэш её не трогает.
@@ -115,16 +136,35 @@ public final class IdCache {
     public Integer upsertUser(Connection c, String uuid, String name) throws SQLException {
         if (uuid == null) return null;
         Integer cached = users.get(uuid);
-        if (cached != null) return cached;
+        if (cached != null) {
+            // Кэш-попадание не гарантирует верное ИМЯ: строку мог завести userIdOrCreate с плейсхолдером.
+            repairName(c, uuid, name);
+            return cached;
+        }
         try (PreparedStatement ins = c.prepareStatement(ignore() + " INTO users(name, uuid) VALUES(?, ?)")) {
             ins.setString(1, name);
             ins.setString(2, uuid);
             ins.executeUpdate();
         }
+        repairName(c, uuid, name);
         Integer id = selectId(c, "SELECT id FROM users WHERE uuid = ?", uuid);
         if (id != null) users.put(uuid, id);
         else LOGGER.warn("Не удалось получить id пользователя после вставки (uuid={})", uuid);
         return id;
+    }
+
+    /**
+     * Заменить временное имя ({@code ?xxxxxxxx}, поставленное {@link #userIdOrCreate}) на настоящее.
+     * No-op на уровне БД, если имя уже верное. Вызывается только при входе игрока, не на горячем пути.
+     */
+    private void repairName(Connection c, String uuid, String name) throws SQLException {
+        if (name == null || name.startsWith("?")) return;
+        try (PreparedStatement up = c.prepareStatement("UPDATE users SET name = ? WHERE uuid = ? AND name <> ?")) {
+            up.setString(1, name);
+            up.setString(2, uuid);
+            up.setString(3, name);
+            up.executeUpdate();
+        }
     }
 
     /**

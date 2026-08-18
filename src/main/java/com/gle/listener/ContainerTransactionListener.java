@@ -12,21 +12,24 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.event.entity.player.PlayerContainerEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -49,16 +52,24 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ContainerTransactionListener {
 
     private record Pending(String dim, BlockPos pos, long time) {}
-    private record OpenSnapshot(String dim, BlockPos pos, Map<String, ItemStack> before) {}
+    private record OpenSnapshot(String dim, BlockPos pos, Map<String, ItemStack> before,
+                                List<ItemStack> beforeSlots, boolean furnace) {}
 
     private static final Map<UUID, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<UUID, OpenSnapshot> OPEN = new ConcurrentHashMap<>();
+
+    /** Игрок должен быть рядом с блоком, снимок которого мы берём (замена таймауту «2 секунды»). */
+    private static final double MAX_REACH_SQR = 8.0 * 8.0;
+
+    /** Раскладка слотов печи: 0=вход, 1=топливо, 2=результат.
+     *  {@code AbstractFurnaceBlockEntity.SLOT_*} объявлены protected и извне недоступны. */
+    private static final int SLOT_RESULT = 2;
 
     /** Клик по блоку с предметным хендлером (не ванильный контейнер) — запоминаем позицию. */
     @SubscribeEvent
     public void onRightClick(PlayerInteractEvent.RightClickBlock event) {
         if (!GLEConfig.enableContainerTransactions.get()) return;
-        if (event.getHand() != InteractionHand.MAIN_HAND) return;
+        // Обе руки: сундук открывается и вторичной рукой, а раньше такое открытие не логировалось.
         if (!(event.getLevel() instanceof ServerLevel level)) return;
         Player player = event.getEntity();
         if (!(player instanceof ServerPlayer) || player instanceof FakePlayer) return;
@@ -75,12 +86,20 @@ public final class ContainerTransactionListener {
         if (!GLEConfig.enableContainerTransactions.get()) return;
         if (!(event.getEntity() instanceof ServerPlayer sp)) return;
         Pending pend = PENDING.remove(sp.getUUID());
-        if (pend == null || System.currentTimeMillis() - pend.time() > 2000) return; // не от нашего клика
+        if (pend == null) return;
         if (!(sp.level() instanceof ServerLevel level)) return;
+
+        // Раньше здесь стоял таймаут в 2 секунды — при лаге сервера >2 с ВСЯ транзакция терялась
+        // молча. Вместо времени проверяем то, что действительно важно: блок всё ещё на месте,
+        // это тот же мир, и игрок физически рядом с ним.
+        if (!pend.dim().equals(level.dimension().location().toString())) return;
+        if (sp.blockPosition().distSqr(pend.pos()) > MAX_REACH_SQR) return;
 
         IItemHandler handler = handlerAt(level, pend.pos());
         if (handler == null) return;
-        OPEN.put(sp.getUUID(), new OpenSnapshot(pend.dim(), pend.pos(), snapshot(handler, level.registryAccess())));
+        OPEN.put(sp.getUUID(), new OpenSnapshot(pend.dim(), pend.pos(),
+                snapshot(handler, level.registryAccess()), snapshotSlots(handler),
+                level.getBlockEntity(pend.pos()) instanceof AbstractFurnaceBlockEntity));
     }
 
     /** Меню закрылось — сравниваем «до» и «после», пишем дельты. */
@@ -92,10 +111,80 @@ public final class ContainerTransactionListener {
         if (snap == null || !GLStorage.isReady()) return;
         if (!(sp.level() instanceof ServerLevel level)) return;
 
+        finishSnapshot(level, sp, snap);
+    }
+
+    /**
+     * Игрок вышел с открытым контейнером: {@link PlayerContainerEvent.Close} в этом пути может
+     * не прийти, а раньше снимок просто оставался в карте навсегда (утечка + потерянная транзакция).
+     */
+    @SubscribeEvent
+    public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        PENDING.remove(event.getEntity().getUUID());
+        OpenSnapshot snap = OPEN.remove(event.getEntity().getUUID());
+        if (snap == null || !GLStorage.isReady()) return;
+        if (event.getEntity() instanceof ServerPlayer sp && sp.level() instanceof ServerLevel level) {
+            finishSnapshot(level, sp, snap);
+        }
+    }
+
+    /**
+     * Досчитать и записать разницу. Если контейнера больше нет (его сломали при открытом GUI —
+     * ровно гриферский сценарий), раньше здесь стоял молчаливый {@code return} и вся разница
+     * терялась. Теперь считаем, что всё содержимое изъято.
+     */
+    private static void finishSnapshot(ServerLevel level, ServerPlayer sp, OpenSnapshot snap) {
         IItemHandler handler = handlerAt(level, snap.pos());
-        if (handler == null) return;
-        Map<String, ItemStack> after = snapshot(handler, level.registryAccess());
+        if (snap.furnace() && handler != null) {
+            logFurnaceDiff(level, snap, sp, snapshotSlots(handler));
+            return;
+        }
+        Map<String, ItemStack> after = handler == null
+                ? Map.of()
+                : snapshot(handler, level.registryAccess());
         logDiff(level, snap, sp, after);
+    }
+
+    /** Послотовый снимок (копии) — нужен там, где роль слота важна. */
+    private static List<ItemStack> snapshotSlots(IItemHandler handler) {
+        List<ItemStack> out = new ArrayList<>(handler.getSlots());
+        for (int i = 0; i < handler.getSlots(); i++) out.add(handler.getStackInSlot(i).copy());
+        return out;
+    }
+
+    /**
+     * Печь/коптильня/доменная печь тикают САМИ, в том числе пока их GUI открыт. Агрегированный
+     * дифф записывал сожжённое топливо и выплавленный продукт на счёт игрока, который просто
+     * смотрел на процесс. Здесь считаем по ролям слотов (0=вход, 1=топливо, 2=результат) и пишем
+     * только то, что игрок физически мог сделать:
+     * <ul>
+     *   <li>прирост во входе/топливе — игрок положил;</li>
+     *   <li>убыль в результате — игрок забрал.</li>
+     * </ul>
+     * ponytail: убыль во входе/топливе неотличима от переплавки, поэтому не пишется — потерять
+     * редкое «игрок забрал свой уголь» лучше, чем штамповать ложные записи на каждую переплавку.
+     * Точное разделение потребовало бы перехвата самого рецепта (миксин в AbstractFurnaceBlockEntity).
+     */
+    private static void logFurnaceDiff(ServerLevel level, OpenSnapshot snap, ServerPlayer player,
+                                       List<ItemStack> after) {
+        List<ItemStack> before = snap.beforeSlots();
+        int slots = Math.min(before.size(), after.size());
+        for (int slot = 0; slot < slots; slot++) {
+            ItemStack b = before.get(slot);
+            ItemStack a = after.get(slot);
+            boolean sameItem = ItemStack.isSameItemSameComponents(b, a);
+            int delta = (a.isEmpty() ? 0 : a.getCount()) - (b.isEmpty() ? 0 : b.getCount());
+
+            if (slot == SLOT_RESULT) {
+                // Забрать из слота результата может только игрок — прирост там даёт переплавка.
+                int taken = sameItem ? -delta : b.getCount();
+                write(level, snap, player, b, taken, GLActions.REMOVE_ITEM);
+                continue;
+            }
+            // Слоты входа и топлива: только прирост — это заведомо действие игрока.
+            int added = sameItem ? delta : a.getCount();
+            write(level, snap, player, a, added, GLActions.ADD_ITEM);
+        }
     }
 
     /**
@@ -150,24 +239,31 @@ public final class ContainerTransactionListener {
             int action = delta > 0 ? GLActions.ADD_ITEM : GLActions.REMOVE_ITEM;
             int amount = Math.abs(delta);
 
-            ResourceLocation itemKey = BuiltInRegistries.ITEM.getKey(rep.getItem());
-            String material = GLMaterials.normalize(itemKey);
-            byte[] data;
-            try {
-                data = ItemData.serialize(rep, level.registryAccess());
-            } catch (Exception e) {
-                data = null;
-            }
-            GLStorage.get().containers().insert(new ContainerLogDao.ContainerEntry(
-                    System.currentTimeMillis(),
-                    player.getUUID().toString(),
-                    snap.dim(),
-                    snap.pos().getX(), snap.pos().getY(), snap.pos().getZ(),
-                    material,
-                    data,
-                    amount,
-                    action));
+            write(level, snap, player, rep, amount, action);
         }
+    }
+
+    /** Единая точка записи строки {@code containers} для обычного и печного диффа. */
+    private static void write(ServerLevel level, OpenSnapshot snap, ServerPlayer player,
+                              ItemStack rep, int amount, int action) {
+        if (amount <= 0 || rep.isEmpty()) return;
+        ResourceLocation itemKey = BuiltInRegistries.ITEM.getKey(rep.getItem());
+        String material = GLMaterials.normalize(itemKey);
+        byte[] data;
+        try {
+            data = ItemData.serialize(rep, level.registryAccess());
+        } catch (Exception e) {
+            data = null;
+        }
+        GLStorage.get().containers().insert(new ContainerLogDao.ContainerEntry(
+                System.currentTimeMillis(),
+                player.getUUID().toString(),
+                snap.dim(),
+                snap.pos().getX(), snap.pos().getY(), snap.pos().getZ(),
+                material,
+                data,
+                amount,
+                action));
     }
 
     /** Канонический ключ предмета: registry-имя + base64 байтов компонентов. */

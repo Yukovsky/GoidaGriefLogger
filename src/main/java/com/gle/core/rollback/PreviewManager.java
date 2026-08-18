@@ -65,7 +65,7 @@ public final class PreviewManager {
         dbExecutor.submit(() -> {
             List<RollbackData.BlockChange> blocks;
             try (Connection conn = GLStorage.get().database().newConnection()) {
-                blocks = RollbackData.queryBlocks(conn, filter);
+                blocks = RollbackData.queryBlocks(conn, filter, true); // preview показывает, что сделает откат
             } catch (Exception e) {
                 server.execute(() -> out.accept(Component.literal("§c" + RollbackManager.translateDbError(e))));
                 return;

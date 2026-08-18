@@ -36,8 +36,12 @@ public final class GLESourceResolver {
             if (name.contains("Schematicannon")) {
                 return new Resolved(SourceType.CREATE_SCHEMATICANNON, SystemUsers.CREATE);
             }
-            String modid = modIdOf(entity);
-            return new Resolved(modid + ":fakeplayer", "create".equals(modid) ? SystemUsers.CREATE : SystemUsers.SERVER);
+            // modIdOf здесь бесполезен: FakePlayer — это EntityType.PLAYER, поэтому он ВСЕГДА
+            // возвращал "minecraft", ветка "create" была недостижима, а реальный автор терялся.
+            // Класс fake-player'а несёт имя своего мода, из него и берём modid.
+            String modid = modIdOfClass(entity);
+            return new Resolved(modid + ":fakeplayer",
+                    "create".equals(modid) ? SystemUsers.CREATE : SystemUsers.SERVER);
         }
 
         if (entity instanceof FallingBlockEntity) {
@@ -49,7 +53,9 @@ public final class GLESourceResolver {
         }
 
         if (entity instanceof Mob) {
-            return new Resolved(SourceType.entity(entityTypePath(entity)), SystemUsers.MOB);
+            // Namespace сохраняем, как в соседних ветках: иначе мобы двух модов с одинаковым
+            // path схлопывались в один source_type.
+            return new Resolved(SourceType.entity(entityTypeId(entity)), SystemUsers.MOB);
         }
 
         // Универсальный fallback: <modid>:<entity_type>
@@ -60,6 +66,23 @@ public final class GLESourceResolver {
 
     private static ResourceLocation entityKey(Entity entity) {
         return BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+    }
+
+    /**
+     * modid по ПАКЕТУ класса сущности. Нужен для fake-player'ов: их {@code EntityType} всегда
+     * {@code minecraft:player}, поэтому реестр про их мод ничего не знает.
+     * Например {@code com.simibubi.create.…} → {@code create}, {@code dev.foo.bar.…} → {@code bar}.
+     */
+    public static String modIdOfClass(Entity entity) {
+        String pkg = entity.getClass().getName();
+        String[] parts = pkg.split("\\.");
+        for (String part : parts) {
+            // Пропускаем типовые префиксы доменов; первый содержательный сегмент и есть modid.
+            if (part.equals("com") || part.equals("net") || part.equals("org") || part.equals("dev")
+                    || part.equals("io") || part.equals("me")) continue;
+            return part.toLowerCase(java.util.Locale.ROOT);
+        }
+        return "unknown";
     }
 
     public static String modIdOf(Entity entity) {

@@ -42,19 +42,18 @@ public final class GleEventsDao {
         final String sql = "INSERT INTO gle_signs(time, user, level, x, y, z, " +
                 "front_before, back_before, front_after, back_after, flags) " +
                 "VALUES(?, ?, ?, ?,?,?, ?,?,?,?, ?)";
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, e.userUuid());
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, e.userUuid());
             int levelId = ids.levelId(conn, e.levelName());
-            try (PreparedStatement p = conn.prepareStatement(sql)) {
-                p.setLong(1, e.time());
-                setNullableInt(p, 2, userId);
-                p.setInt(3, levelId);
-                p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
-                p.setString(7, e.frontBefore()); p.setString(8, e.backBefore());
-                p.setString(9, e.frontAfter()); p.setString(10, e.backAfter());
-                p.setString(11, e.flags());
-                p.executeUpdate();
-            }
+            PreparedStatement p = sink.statement(sql);
+            p.setLong(1, e.time());
+            setNullableInt(p, 2, userId);
+            p.setInt(3, levelId);
+            p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
+            p.setString(7, e.frontBefore()); p.setString(8, e.backBefore());
+            p.setString(9, e.frontAfter()); p.setString(10, e.backAfter());
+            p.setString(11, e.flags());
+            p.addBatch();
         });
     }
 
@@ -68,35 +67,33 @@ public final class GleEventsDao {
         final String sql = "INSERT INTO gle_world_entities(time, user, level, x, y, z, " +
                 "entity_type, entity_uuid, action, item, item_nbt, source_type, extra_data) " +
                 "VALUES(?, ?, ?, ?,?,?, ?,?,?,?,?,?,?)";
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, e.userUuid());
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, e.userUuid());
             int levelId = ids.levelId(conn, e.levelName());
-            try (PreparedStatement p = conn.prepareStatement(sql)) {
-                p.setLong(1, e.time());
-                setNullableInt(p, 2, userId);
-                p.setInt(3, levelId);
-                p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
-                p.setString(7, e.entityType()); p.setString(8, e.entityUuid()); p.setString(9, e.action());
-                if (e.item() == null) p.setNull(10, Types.VARCHAR); else p.setString(10, e.item());
-                if (e.itemNbt() == null) p.setNull(11, Types.BLOB); else p.setBytes(11, e.itemNbt());
-                p.setString(12, e.sourceType());
-                if (e.extraData() == null) p.setNull(13, Types.VARCHAR); else p.setString(13, e.extraData());
-                p.executeUpdate();
-            }
+            PreparedStatement p = sink.statement(sql);
+            p.setLong(1, e.time());
+            setNullableInt(p, 2, userId);
+            p.setInt(3, levelId);
+            p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
+            p.setString(7, e.entityType()); p.setString(8, e.entityUuid()); p.setString(9, e.action());
+            if (e.item() == null) p.setNull(10, Types.VARCHAR); else p.setString(10, e.item());
+            if (e.itemNbt() == null) p.setNull(11, Types.BLOB); else p.setBytes(11, e.itemNbt());
+            p.setString(12, e.sourceType());
+            if (e.extraData() == null) p.setNull(13, Types.VARCHAR); else p.setString(13, e.extraData());
+            p.addBatch();
         });
     }
 
     // --- NBT-снимок контейнера на момент слома (для отката сломов игроком) ---
     public void insertBlockNbt(long time, String levelName, int x, int y, int z, byte[] nbt) {
         final String sql = "INSERT INTO gle_block_nbt(time, level, x, y, z, nbt) VALUES(?, ?, ?, ?, ?, ?)";
-        queue.submit(conn -> {
-            try (PreparedStatement p = conn.prepareStatement(sql)) {
-                p.setLong(1, time);
-                p.setString(2, levelName);
-                p.setInt(3, x); p.setInt(4, y); p.setInt(5, z);
-                p.setBytes(6, nbt);
-                p.executeUpdate();
-            }
+        queue.submit((conn, sink) -> {
+            PreparedStatement p = sink.statement(sql);
+            p.setLong(1, time);
+            p.setString(2, levelName);
+            p.setInt(3, x); p.setInt(4, y); p.setInt(5, z);
+            p.setBytes(6, nbt);
+            p.addBatch();
         });
     }
 
@@ -107,17 +104,16 @@ public final class GleEventsDao {
     public void insertPlayerDeath(PlayerDeathEntry e) {
         final String sql = "INSERT INTO gle_player_deaths(time, player_uuid, level, x, y, z, cause, inventory_nbt) " +
                 "VALUES(?, ?, ?, ?,?,?, ?, ?)";
-        queue.submit(conn -> {
+        queue.submit((conn, sink) -> {
             int levelId = ids.levelId(conn, e.levelName());
-            try (PreparedStatement p = conn.prepareStatement(sql)) {
-                p.setLong(1, e.time());
-                p.setString(2, e.playerUuid());
-                p.setInt(3, levelId);
-                p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
-                p.setString(7, e.cause());
-                if (e.inventoryNbt() == null) p.setNull(8, Types.BLOB); else p.setBytes(8, e.inventoryNbt());
-                p.executeUpdate();
-            }
+            PreparedStatement p = sink.statement(sql);
+            p.setLong(1, e.time());
+            p.setString(2, e.playerUuid());
+            p.setInt(3, levelId);
+            p.setInt(4, e.x()); p.setInt(5, e.y()); p.setInt(6, e.z());
+            p.setString(7, e.cause());
+            if (e.inventoryNbt() == null) p.setNull(8, Types.BLOB); else p.setBytes(8, e.inventoryNbt());
+            p.addBatch();
         });
     }
 }

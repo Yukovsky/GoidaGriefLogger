@@ -45,7 +45,18 @@ public final class SystemUsers {
         ALL.put(AUTO,    "00000000-0000-0000-0000-00000000000c");
     }
 
+    /** uuid -> имя. Нужен, чтобы запись справочника {@code users} могла быть создана по одному uuid. */
+    private static final Map<String, String> BY_UUID = new LinkedHashMap<>();
+    static {
+        ALL.forEach((name, uuid) -> BY_UUID.put(uuid, name));
+    }
+
     public static String uuidOf(String name) {
         return ALL.get(name);
+    }
+
+    /** Имя системного пользователя по его фиксированному uuid, либо {@code null} если это не системный uuid. */
+    public static String nameOf(String uuid) {
+        return BY_UUID.get(uuid);
     }
 }

@@ -53,14 +53,15 @@ public final class BlockLogDao {
     ) {}
 
     public void insert(BlockEntry e) {
-        final String ignore = db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE";
-        final String blockSql = ignore + " INTO blocks("
+        // Обычный INSERT: у blocks нет UNIQUE, дедупликации IGNORE не давал — только глушил
+        // ошибки (в MySQL INSERT IGNORE понижает до warning в т.ч. truncation и NOT NULL).
+        final String blockSql = "INSERT INTO blocks("
                 + "time, user, level, x, y, z, type, action, "
                 + "source_type, source_player_uuid, extra_data, block_nbt, nbt_truncated) "
                 + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, e.userUuid());
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, e.userUuid());
             if (userId == null) {
                 // blocks.user NOT NULL: пользователя ещё нет — пропускаем (так же поступал
                 // подзапрос GriefLogger, дававший NULL и роняя вставку по NOT NULL).
@@ -70,26 +71,25 @@ public final class BlockLogDao {
             int levelId = ids.levelId(conn, e.levelName());
             int materialId = ids.materialId(conn, e.material());
 
-            try (PreparedStatement b = conn.prepareStatement(blockSql)) {
-                b.setLong(1, e.time());
-                b.setInt(2, userId);
-                b.setInt(3, levelId);
-                b.setInt(4, e.x());
-                b.setInt(5, e.y());
-                b.setInt(6, e.z());
-                b.setInt(7, materialId);
-                b.setInt(8, e.action());
-                setNullableString(b, 9, e.sourceType());
-                setNullableString(b, 10, e.sourcePlayerUuid());
-                setNullableString(b, 11, e.extraData());
-                if (e.blockNbt() != null) {
-                    b.setBytes(12, e.blockNbt());
-                } else {
-                    b.setNull(12, Types.BLOB);
-                }
-                b.setInt(13, e.nbtTruncated() ? 1 : 0);
-                b.executeUpdate();
+            PreparedStatement b = sink.statement(blockSql);
+            b.setLong(1, e.time());
+            b.setInt(2, userId);
+            b.setInt(3, levelId);
+            b.setInt(4, e.x());
+            b.setInt(5, e.y());
+            b.setInt(6, e.z());
+            b.setInt(7, materialId);
+            b.setInt(8, e.action());
+            setNullableString(b, 9, e.sourceType());
+            setNullableString(b, 10, e.sourcePlayerUuid());
+            setNullableString(b, 11, e.extraData());
+            if (e.blockNbt() != null) {
+                b.setBytes(12, e.blockNbt());
+            } else {
+                b.setNull(12, Types.BLOB);
             }
+            b.setInt(13, e.nbtTruncated() ? 1 : 0);
+            b.addBatch();
         });
     }
 
@@ -102,29 +102,27 @@ public final class BlockLogDao {
      */
     public void insertEntityKill(long time, String userUuid, String levelName,
                                  int x, int y, int z, String entityName) {
-        final String ignore = db.isMysql() ? "INSERT IGNORE" : "INSERT OR IGNORE";
-        final String blockSql = ignore + " INTO blocks(time, user, level, x, y, z, type, action) "
+        final String blockSql = "INSERT INTO blocks(time, user, level, x, y, z, type, action) "
                 + "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
 
-        queue.submit(conn -> {
-            Integer userId = ids.userId(conn, userUuid);
+        queue.submit((conn, sink) -> {
+            Integer userId = ids.userIdOrCreate(conn, userUuid);
             if (userId == null) {
                 LOGGER.debug("blocks(kill): пропуск — нет пользователя uuid={}", userUuid);
                 return;
             }
             int levelId = ids.levelId(conn, levelName);
             int entityId = ids.entityId(conn, entityName); // type → entities.id для kill-строк
-            try (PreparedStatement b = conn.prepareStatement(blockSql)) {
-                b.setLong(1, time);
-                b.setInt(2, userId);
-                b.setInt(3, levelId);
-                b.setInt(4, x);
-                b.setInt(5, y);
-                b.setInt(6, z);
-                b.setInt(7, entityId);
-                b.setInt(8, GLActions.KILL_ENTITY);
-                b.executeUpdate();
-            }
+            PreparedStatement b = sink.statement(blockSql);
+            b.setLong(1, time);
+            b.setInt(2, userId);
+            b.setInt(3, levelId);
+            b.setInt(4, x);
+            b.setInt(5, y);
+            b.setInt(6, z);
+            b.setInt(7, entityId);
+            b.setInt(8, GLActions.KILL_ENTITY);
+            b.addBatch();
         });
     }
 

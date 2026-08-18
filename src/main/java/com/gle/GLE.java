@@ -131,5 +131,7 @@ public final class GLE {
     public void onServerTick(ServerTickEvent.Post event) {
         RollbackManager.get().tick();
         PreviewManager.get().tick(event.getServer());
+        // Контекст атрибуции обязан быть пуст к концу тика; если нет — утечка, ограничиваем её тиком.
+        com.gle.core.GriefContext.sweepLeaks();
     }
 }
