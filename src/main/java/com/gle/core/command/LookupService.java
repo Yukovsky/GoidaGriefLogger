@@ -134,13 +134,28 @@ public final class LookupService {
         return Component.literal("").append(prev).append(Component.literal("  ")).append(next);
     }
 
+    /**
+     * Тело строки результата. Откатанные записи — тёмно-серые и зачёркнутые целиком.
+     * <p>
+     * Ключевой момент: текст строки содержит legacy-коды {@code §}, а
+     * {@link net.minecraft.network.chat.Style#applyLegacyFormat} на ЛЮБОМ цветовом коде
+     * принудительно сбрасывает {@code strikethrough} и перетирает цвет. Строка начинается
+     * с {@code §7} (из {@link #ago}), поэтому стиль компонента умирал на первом же символе,
+     * и пометка отката была видна только во всплывающей подсказке. Убираем коды из текста —
+     * тогда стиль применяется ко всей строке.
+     */
+    public static MutableComponent bodyComponent(String body, boolean rolledBack) {
+        if (!rolledBack) return Component.literal(body);
+        return Component.literal(stripColors(body))
+                .withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.STRIKETHROUGH);
+    }
+
     private static MutableComponent renderLine(Row r, long now) {
         String mat = r.material() == null ? "?" : r.material();
         String body = ago(now - r.time()) + " §f" + safe(r.user()) + " " + r.actionText() + " §f" + mat
                 + (r.amount() > 0 ? " §7x" + r.amount() : "")
                 + " §7@ " + r.x() + "," + r.y() + "," + r.z();
-        MutableComponent line = Component.literal(body);
-        if (r.rolledBack()) line = Component.literal(body).withStyle(ChatFormatting.STRIKETHROUGH, ChatFormatting.GRAY);
+        MutableComponent line = bodyComponent(body, r.rolledBack());
 
         String hover = "§7Время: §f" + java.time.Instant.ofEpochMilli(r.time())
                 + "\n§7Игрок: §f" + safe(r.user())

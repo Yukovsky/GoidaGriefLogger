@@ -83,6 +83,7 @@ public final class GLSelfCheck {
 
         checkWritePath();
         checkMaterialNames();
+        checkRolledBackStyling();
 
         database.close();
         if (failures > 0) {
@@ -162,6 +163,33 @@ public final class GLSelfCheck {
         check("materials: id с подстрокой minecraft внутри не искажён",
                 "notminecraft:foo".equals(com.gle.core.GLMaterials.normalize(
                         net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("notminecraft", "foo"))));
+    }
+
+    /**
+     * Откатанная запись обязана отличаться визуально САМА ПО СЕБЕ, без наведения курсора.
+     * Ловушка: legacy-код § внутри текста сбрасывает strikethrough и цвет компонента, поэтому
+     * стиль виден только если кодов в тексте не осталось.
+     */
+    private static void checkRolledBackStyling() {
+        String body = "\u00a77" + "5m \u00a7fSteve \u00a7cсломал \u00a7fstone \u00a77@ 1,2,3";
+
+        var plain = com.gle.core.command.LookupService.bodyComponent(body, false);
+        check("lookup: обычная строка сохраняет свои цвета",
+                plain.getString().indexOf('\u00a7') >= 0);
+
+        var rolled = com.gle.core.command.LookupService.bodyComponent(body, true);
+        var style = rolled.getStyle();
+        check("lookup: откатанная строка зачёркнута",
+                Boolean.TRUE.equals(style.isStrikethrough()));
+        check("lookup: откатанная строка затемнена",
+                style.getColor() != null && style.getColor().equals(
+                        net.minecraft.network.chat.TextColor.fromLegacyFormat(
+                                net.minecraft.ChatFormatting.DARK_GRAY)));
+        // Главная проверка: без неё стиль выше существует, но на экране не виден.
+        check("lookup: в откатанной строке не осталось legacy-кодов, гасящих стиль",
+                rolled.getString().indexOf('\u00a7') < 0);
+        check("lookup: текст строки не потерян",
+                rolled.getString().contains("Steve") && rolled.getString().contains("stone"));
     }
 
     private static int count(Connection c, String from) throws Exception {
