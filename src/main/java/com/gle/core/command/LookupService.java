@@ -135,7 +135,7 @@ public final class LookupService {
     }
 
     /**
-     * Тело строки результата. Откатанные записи — тёмно-серые и зачёркнутые целиком.
+     * Тело строки результата. Откатанные записи — серые и зачёркнутые целиком.
      * <p>
      * Ключевой момент: текст строки содержит legacy-коды {@code §}, а
      * {@link net.minecraft.network.chat.Style#applyLegacyFormat} на ЛЮБОМ цветовом коде
@@ -147,7 +147,7 @@ public final class LookupService {
     public static MutableComponent bodyComponent(String body, boolean rolledBack) {
         if (!rolledBack) return Component.literal(body);
         return Component.literal(stripColors(body))
-                .withStyle(ChatFormatting.DARK_GRAY, ChatFormatting.STRIKETHROUGH);
+                .withStyle(ChatFormatting.GRAY, ChatFormatting.STRIKETHROUGH);
     }
 
     private static MutableComponent renderLine(Row r, long now) {

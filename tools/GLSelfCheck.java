@@ -181,10 +181,10 @@ public final class GLSelfCheck {
         var style = rolled.getStyle();
         check("lookup: откатанная строка зачёркнута",
                 Boolean.TRUE.equals(style.isStrikethrough()));
-        check("lookup: откатанная строка затемнена",
+        check("lookup: откатанная строка приглушена (серая)",
                 style.getColor() != null && style.getColor().equals(
                         net.minecraft.network.chat.TextColor.fromLegacyFormat(
-                                net.minecraft.ChatFormatting.DARK_GRAY)));
+                                net.minecraft.ChatFormatting.GRAY)));
         // Главная проверка: без неё стиль выше существует, но на экране не виден.
         check("lookup: в откатанной строке не осталось legacy-кодов, гасящих стиль",
                 rolled.getString().indexOf('\u00a7') < 0);
