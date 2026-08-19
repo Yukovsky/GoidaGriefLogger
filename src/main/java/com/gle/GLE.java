@@ -9,6 +9,7 @@ import com.gle.integration.IntegrationRegistry;
 import com.gle.integration.backpacks.BackpacksIntegration;
 import com.gle.integration.create.CreateIntegration;
 import com.gle.integration.toms.TomsIntegration;
+import com.gle.listener.CarriedContainerListener;
 import com.gle.listener.ChatCommandListener;
 import com.gle.listener.ContainerAccessListener;
 import com.gle.listener.ContainerTransactionListener;
@@ -94,6 +95,7 @@ public final class GLE {
         NeoForge.EVENT_BUS.register(new ItemPickupListener());
         NeoForge.EVENT_BUS.register(new ContainerAccessListener());
         NeoForge.EVENT_BUS.register(new ContainerTransactionListener());
+        NeoForge.EVENT_BUS.register(new CarriedContainerListener());
 
         // Подключаемые модули интеграций (активируются по наличию modid на старте сервера)
         integrations.register(new CreateIntegration())

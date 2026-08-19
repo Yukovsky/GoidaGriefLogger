@@ -76,6 +76,14 @@ public final class ContainerTransactionListener {
                 new Pending(level.dimension().location().toString(), pos.immutable(), System.currentTimeMillis()));
     }
 
+    /**
+     * Есть ли у этого игрока свежий клик по блоку-контейнеру, то есть ведёт ли меню этот
+     * слушатель. Нужно {@link CarriedContainerListener}, чтобы не логировать одно и то же дважды.
+     */
+    static boolean hasBlockContext(ServerPlayer player) {
+        return PENDING.containsKey(player.getUUID()) || OPEN.containsKey(player.getUUID());
+    }
+
     /** Меню открылось — снимаем снимок содержимого хендлера у запомненной позиции. */
     @SubscribeEvent
     public void onOpen(PlayerContainerEvent.Open event) {

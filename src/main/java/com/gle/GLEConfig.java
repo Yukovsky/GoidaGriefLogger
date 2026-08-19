@@ -34,6 +34,7 @@ public final class GLEConfig {
     public static final ModConfigSpec.BooleanValue enableItemPickup;
     public static final ModConfigSpec.BooleanValue enableContainerAccess;
     public static final ModConfigSpec.BooleanValue enableContainerTransactions;
+    public static final ModConfigSpec.BooleanValue enableCarriedContainers;
     public static final ModConfigSpec.BooleanValue enableBlockActivation;
     public static final ModConfigSpec.BooleanValue enableModBlockChanges;
     public static final ModConfigSpec.BooleanValue enableEntityGriefing;
@@ -112,6 +113,11 @@ public final class GLEConfig {
                 "ящики-моды, Create-вместилища) — снимок при открытии, разница при закрытии (как у сундука).",
                 "Ванильные контейнеры (BaseContainerBlockEntity) логирует сам GriefLogger — их не дублируем.")
                 .define("enableContainerTransactions", true);
+        enableCarriedContainers = b.comment(
+                "Транзакции в НОСИМЫХ вместилищах — рюкзаках и сумках, открываемых из инвентаря.",
+                "У них нет позиции в мире, поэтому обычный контейнерный слой их не видит вообще.",
+                "Запись идёт по позиции игрока. Работает для любых модов рюкзаков.")
+                .define("enableCarriedContainers", true);
         enableBlockActivation= b.comment("Активация блоков, которую НЕ пишет сам GriefLogger: нажимные плиты,",
                 "тропвайр (срабатывают наступанием, без права-клика). Кнопки/рычаги/двери/люки/калитки",
                 "и репитеры уже логирует GriefLogger по right-click — их не дублируем.",
