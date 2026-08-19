@@ -84,6 +84,7 @@ public final class GLSelfCheck {
 
         checkApplyOrder(c);
         checkRoundTrip(c);
+        checkNbtDedup(c, database);
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
@@ -113,7 +114,8 @@ public final class GLSelfCheck {
         WriteQueue queue = new WriteQueue(db, 5000);
         IdCache ids = new IdCache(false);
         queue.setOnRollback(ids::clear);
-        BlockLogDao blocks = new BlockLogDao(db, queue, ids);
+        var nbtStore = new com.gle.core.db.NbtStore(false);
+        BlockLogDao blocks = new BlockLogDao(db, queue, ids, nbtStore);
         ContainerLogDao containers = new ContainerLogDao(db, queue, ids);
         SessionDao sessions = new SessionDao(db, queue, ids);
         queue.start();
@@ -130,14 +132,17 @@ public final class GLSelfCheck {
                     "stone", null, 1, 1));
         }
         // Убийство: type ссылается на entities, а не materials — отдельный SQL, отдельный пакет.
-        blocks.insertEntityKill(9000L, "uuid-writer", "minecraft:overworld", 5, 64, 5, "minecraft:zombie");
+        blocks.insertEntityKill(9000L, "uuid-writer", "minecraft:overworld", 5, 64, 5, "minecraft:zombie", null);
+        // Именованный моб: снимок отличается от обычной особи и обязан сохраниться.
+        blocks.insertEntityKill(9001L, "uuid-writer", "minecraft:overworld", 6, 64, 5, "minecraft:creeper",
+                "именованный-крипер".getBytes(java.nio.charset.StandardCharsets.UTF_8));
 
         // Никаких sleep: stop() обязан сам дождаться дренажа очереди.
         queue.stop();
 
         Connection c = db.connection();
-        check("write: все строки blocks записаны (ожидали " + (N + 1) + ", в БД " + count(c, "blocks") + ")",
-                count(c, "blocks") == N + 1);
+        check("write: все строки blocks записаны (ожидали " + (N + 2) + ", в БД " + count(c, "blocks") + ")",
+                count(c, "blocks") == N + 2);
         check("write: все строки containers записаны (ожидали " + N + ", в БД " + count(c, "containers") + ")",
                 count(c, "containers") == N);
         check("write: сессия записана", count(c, "sessions") == 1);
@@ -153,6 +158,15 @@ public final class GLSelfCheck {
         check("write: убийство записано с id из entities",
                 count(c, "blocks b JOIN entities e ON b.type = e.id WHERE b.action = 3 "
                         + "AND e.name = 'minecraft:zombie'") == 1);
+        // Обычный моб не должен занимать место в хранилище снимков, именованный — должен.
+        // b.action = 3 обязателен: id справочников materials и entities независимы, и без
+        // фильтра по действию JOIN на entities цепляет обычные строки блоков.
+        check("write: у обычного моба снимок не сохранён",
+                count(c, "blocks b JOIN entities e ON b.type = e.id WHERE b.action = 3 "
+                        + "AND e.name = 'minecraft:zombie' AND b.nbt_id IS NULL") == 1);
+        check("write: у именованного моба снимок сохранён",
+                count(c, "blocks b JOIN entities e ON b.type = e.id WHERE b.action = 3 "
+                        + "AND e.name = 'minecraft:creeper' AND b.nbt_id IS NOT NULL") == 1);
         db.close();
     }
 
@@ -344,6 +358,34 @@ public final class GLSelfCheck {
         RollbackData.markRolledBack(c, "containers", applied, 0);
         check("roundtrip: после restore откат снова видит строки",
                 RollbackData.queryItems(c, f, true).size() == 2);
+    }
+
+    /**
+     * NBT — самая тяжёлая часть лога, поэтому одинаковые снимки обязаны лежать в БД ОДИН раз,
+     * а пустые не заводить строку вовсе. Без этого поток убийств мобов раздул бы базу кратно.
+     */
+    private static void checkNbtDedup(Connection c, GLDatabase database) throws Exception {
+        var store = new com.gle.core.db.NbtStore(false);
+        byte[] a = "снимок-обычного-зомби".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] b = "снимок-именованного".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        check("nbt: пустой снимок не хранится", store.idFor(c, null) == null);
+        check("nbt: снимок нулевой длины не хранится", store.idFor(c, new byte[0]) == null);
+
+        Integer id1 = store.idFor(c, a);
+        Integer id2 = store.idFor(c, a.clone());   // то же содержимое, другой объект
+        Integer id3 = store.idFor(c, b);
+        check("nbt: одинаковое содержимое даёт один id", id1 != null && id1.equals(id2));
+        check("nbt: разное содержимое даёт разные id", id3 != null && !id3.equals(id1));
+        check("nbt: в таблице ровно 2 строки на 3 сохранения (" + count(c, "gle_nbt") + ")",
+                count(c, "gle_nbt") == 2);
+
+        // Кэш сброшен — id обязан остаться прежним, иначе ссылки в логе разъедутся.
+        store.clear();
+        check("nbt: после сброса кэша id не меняется", id1.equals(store.idFor(c, a)));
+
+        byte[] back = com.gle.core.db.NbtStore.load(c, id1);
+        check("nbt: снимок читается обратно без искажений", java.util.Arrays.equals(a, back));
     }
 
     private static int count(Connection c, String from) throws Exception {

@@ -55,6 +55,7 @@ public final class GLEConfig {
     public static final ModConfigSpec.IntValue environmentalRateLimitPerBlockSec;
 
     // [rollback]
+    public static final ModConfigSpec.BooleanValue restoreEntities;
     public static final ModConfigSpec.IntValue batchSize;
     public static final ModConfigSpec.IntValue progressIntervalTicks;
     public static final ModConfigSpec.IntValue maxRestoreAgeDays;
@@ -139,6 +140,10 @@ public final class GLEConfig {
         b.pop();
 
         b.comment("Роллбек / restore / preview").push("rollback");
+        restoreEntities       = b.comment("Возвращать убитых сущностей при откате.",
+                "Снимок хранится только у особей, отличающихся от обычных (имя, экипировка, атрибуты),",
+                "поэтому объём в БД от этого почти не растёт.")
+                .define("restoreEntities", true);
         batchSize             = b.comment("Блоков за тик").defineInRange("batchSize", 200, 50, 1000);
         progressIntervalTicks = b.comment("Тиков между сообщениями прогресса").defineInRange("progressIntervalTicks", 20, 1, 200);
         maxRestoreAgeDays     = b.comment("Макс. возраст роллбека для /gl restore (дни)").defineInRange("maxRestoreAgeDays", 7, 1, 365);

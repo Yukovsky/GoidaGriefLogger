@@ -106,11 +106,16 @@ public final class RollbackManager {
             try {
                 List<RollbackData.BlockChange> blocks;
                 List<RollbackData.ItemChange> items;
+                List<RollbackData.EntityChange> entities;
                 long jobId;
                 try (Connection conn = GLStorage.get().database().newConnection()) {
                     blocks = filter.includeBlocks ? RollbackData.queryBlocks(conn, filter, reverse) : List.of();
                     items = filter.includeItems ? RollbackData.queryItems(conn, filter, reverse) : List.of();
-                    if (blocks.isEmpty() && items.isEmpty()) {
+                    // Убитые сущности возвращаются вместе с блоками: откат обязан вернуть
+                    // территорию к снимку целиком, включая тех, кого на ней убили.
+                    entities = com.gle.GLEConfig.restoreEntities.get()
+                            ? RollbackData.queryEntityKills(conn, filter, reverse) : List.of();
+                    if (blocks.isEmpty() && items.isEmpty() && entities.isEmpty()) {
                         if (!quietIfEmpty) server.execute(() -> feedback.accept(Component.literal(
                                 "§7Нечего " + (reverse ? "откатывать" : "восстанавливать") + " по фильтрам.")));
                         return;
@@ -120,14 +125,17 @@ public final class RollbackManager {
                 final long fJobId = jobId;
                 final List<RollbackData.BlockChange> fBlocks = blocks;
                 final List<RollbackData.ItemChange> fItems = items;
+                final List<RollbackData.EntityChange> fEntities = entities;
                 server.execute(() -> {
-                    RollbackJob.Completion done = (status, ab, ac, failed, blockIds, containerIds) ->
-                            finalizeJob(fJobId, reverse, status, ab, ac, failed, blockIds, containerIds);
-                    RollbackJob job = new RollbackJob(fJobId, reverse, level, fBlocks, fItems, feedback, done);
+                    RollbackJob.Completion done = (status, ab, ac, ae, failed, blockIds, containerIds, entityIds) ->
+                            finalizeJob(fJobId, reverse, status, ab, ac, failed, blockIds, containerIds, entityIds);
+                    RollbackJob job = new RollbackJob(fJobId, reverse, level, fBlocks, fItems, fEntities,
+                            feedback, done);
                     active.add(job);
                     executorOf.put(fJobId, executor);
                     feedback.accept(Component.literal("§e[GLE] " + (reverse ? "Откат" : "Restore")
                             + " запущен: блоков " + fBlocks.size() + ", записей предметов " + fItems.size()
+                            + (fEntities.isEmpty() ? "" : ", сущностей " + fEntities.size())
                             + " (job #" + fJobId + ")."));
                 });
             } catch (Exception e) {
@@ -140,13 +148,16 @@ public final class RollbackManager {
     /** Финализация (вызывается на главном потоке из job.finish) — переносим в фон. */
     private void finalizeJob(long jobId, boolean reverse,
                              String status, int affectedBlocks, int affectedContainers, int failed,
-                             java.util.List<Long> blockIds, java.util.List<Long> containerIds) {
+                             java.util.List<Long> blockIds, java.util.List<Long> containerIds,
+                             java.util.List<Long> entityIds) {
         dbExecutor.submit(() -> {
             try (Connection conn = GLStorage.get().database().newConnection()) {
                 // Помечаем даже прерванное задание: то, что уже применилось к миру, откатанным и осталось.
                 int flag = reverse ? 1 : 0; // откат помечает rolled_back=1, restore снимает
                 RollbackData.markRolledBack(conn, "blocks", blockIds, flag);
                 RollbackData.markRolledBack(conn, "containers", containerIds, flag);
+                // Убийства живут в blocks, помечаются там же.
+                RollbackData.markRolledBack(conn, "blocks", entityIds, flag);
                 RollbackJobsDao.finishJob(conn, jobId, status, affectedBlocks, affectedContainers, failed);
             } catch (Exception e) {
                 LOGGER.warn("Не удалось финализировать job #{}: {}", jobId, e.getMessage());

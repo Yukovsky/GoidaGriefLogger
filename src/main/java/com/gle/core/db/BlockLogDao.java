@@ -129,6 +129,9 @@ public final class BlockLogDao {
             b.setInt(6, z);
             b.setInt(7, entityId);
             b.setInt(8, GLActions.KILL_ENTITY);
+            // Снимок кладётся в дедуплицирующее хранилище; null означает «обычная особь».
+            Integer nbtId = nbt.idFor(conn, entityNbt);
+            if (nbtId == null) b.setNull(9, Types.INTEGER); else b.setInt(9, nbtId);
             b.addBatch();
         });
     }

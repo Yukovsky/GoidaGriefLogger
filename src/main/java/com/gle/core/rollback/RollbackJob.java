@@ -28,8 +28,8 @@ public final class RollbackJob {
          * @param blockIds     id строк {@code blocks}, к которым восстановление РЕАЛЬНО применилось
          * @param containerIds id строк {@code containers}, к которым восстановление РЕАЛЬНО применилось
          */
-        void finish(String status, int affectedBlocks, int affectedContainers, int failed,
-                    List<Long> blockIds, List<Long> containerIds);
+        void finish(String status, int affectedBlocks, int affectedContainers, int affectedEntities,
+                    int failed, List<Long> blockIds, List<Long> containerIds, List<Long> entityIds);
     }
 
     private final long jobId;
@@ -37,11 +37,12 @@ public final class RollbackJob {
     private final ServerLevel level;
     private final List<RollbackData.BlockChange> blocks;
     private final List<RollbackData.ItemChange> items;
+    private final List<RollbackData.EntityChange> entities;
     private final Consumer<Component> feedback;
     private final Completion completion;
 
-    private int blockIdx = 0, itemIdx = 0;
-    private int affectedBlocks = 0, affectedContainers = 0, failed = 0;
+    private int blockIdx = 0, itemIdx = 0, entityIdx = 0;
+    private int affectedBlocks = 0, affectedContainers = 0, affectedEntities = 0, failed = 0;
     private int tickCounter = 0;
     private boolean aborted = false;
     private boolean done = false;
@@ -62,6 +63,7 @@ public final class RollbackJob {
      */
     private final List<Long> appliedBlockIds = new ArrayList<>();
     private final List<Long> appliedContainerIds = new ArrayList<>();
+    private final List<Long> appliedEntityIds = new ArrayList<>();
 
     /**
      * Причины отказов (без повторов, не больше {@link #MAX_REASONS}). Голое «ошибок 5» ничего
@@ -90,12 +92,14 @@ public final class RollbackJob {
 
     public RollbackJob(long jobId, boolean reverse, ServerLevel level,
                        List<RollbackData.BlockChange> blocks, List<RollbackData.ItemChange> items,
+                       List<RollbackData.EntityChange> entities,
                        Consumer<Component> feedback, Completion completion) {
         this.jobId = jobId;
         this.reverse = reverse;
         this.level = level;
         this.blocks = blocks;
         this.items = items;
+        this.entities = entities;
         this.feedback = feedback;
         this.completion = completion;
     }
@@ -149,12 +153,24 @@ public final class RollbackJob {
             } else { failed++; noteFailure(why); }
         }
 
-        if (++tickCounter % GLEConfig.progressIntervalTicks.get() == 0) {
-            feedback.accept(Component.literal("§7[GLE] Прогресс: блоков " + affectedBlocks
-                    + ", контейнеров " + affectedContainers + (failed > 0 ? ", ошибок " + failed : "")));
+        while (budget > 0 && entityIdx < entities.size()) {
+            RollbackData.EntityChange ch = entities.get(entityIdx++);
+            budget--;
+            String why = EntityRestorer.apply(level, ch, reverse);
+            if (why == null) {
+                affectedEntities++;
+                appliedEntityIds.add(ch.id());
+            } else { failed++; noteFailure(why); }
         }
 
-        if (blockIdx >= blocks.size() && itemIdx >= items.size()) {
+        if (++tickCounter % GLEConfig.progressIntervalTicks.get() == 0) {
+            feedback.accept(Component.literal("§7[GLE] Прогресс: блоков " + affectedBlocks
+                    + ", контейнеров " + affectedContainers
+                    + (affectedEntities > 0 ? ", сущностей " + affectedEntities : "")
+                    + (failed > 0 ? ", ошибок " + failed : "")));
+        }
+
+        if (blockIdx >= blocks.size() && itemIdx >= items.size() && entityIdx >= entities.size()) {
             finish("completed");
             return true;
         }
@@ -163,10 +179,11 @@ public final class RollbackJob {
 
     private void finish(String status) {
         done = true;
-        completion.finish(status, affectedBlocks, affectedContainers, failed,
-                List.copyOf(appliedBlockIds), List.copyOf(appliedContainerIds));
+        completion.finish(status, affectedBlocks, affectedContainers, affectedEntities, failed,
+                List.copyOf(appliedBlockIds), List.copyOf(appliedContainerIds), List.copyOf(appliedEntityIds));
         feedback.accept(Component.literal((reverse ? "§a[GLE] Откат" : "§a[GLE] Restore") + " завершён ("
                 + status + "): блоков " + affectedBlocks + ", контейнеров " + affectedContainers
+                + (affectedEntities > 0 ? ", сущностей " + affectedEntities : "")
                 + (failed > 0 ? ", §cошибок " + failed + reasonsSuffix() : "") + "§a."));
     }
 }

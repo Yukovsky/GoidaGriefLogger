@@ -2,6 +2,8 @@ package com.gle.core.rollback;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.gle.core.GLActions;
+
 import net.minecraft.core.BlockPos;
 
 import java.sql.Connection;
@@ -29,6 +31,16 @@ public final class RollbackData {
             long id, long time, String material, int action,
             int x, int y, int z,
             @Nullable String sourceType, @Nullable String extraData, byte @Nullable [] nbt
+    ) {}
+
+    /**
+     * Убитая сущность для восстановления. {@code nbt} — очищенный снимок из дедуплицирующего
+     * хранилища, либо {@code null}: тогда это обычная особь своего типа и достаточно самого типа.
+     */
+    public record EntityChange(
+            long id, long time, String entityName,
+            int x, int y, int z,
+            byte @Nullable [] nbt
     ) {}
 
     /** Изменение содержимого контейнера для реверса. */
@@ -220,6 +232,41 @@ public final class RollbackData {
             sb.append(values.get(k).intValue());
         }
         return sb.toString();
+    }
+
+    /**
+     * Убийства сущностей в окне фильтра. Лежат в той же таблице {@code blocks} с действием
+     * {@code KILL_ENTITY}, но колонка {@code type} у них ссылается на справочник {@code entities},
+     * а не на материалы — соглашение GriefLogger.
+     */
+    public static List<EntityChange> queryEntityKills(Connection conn, RollbackFilter f, boolean reverse)
+            throws SQLException {
+        if (!ActionFilters.allows(f, ActionFilters.KILL)) return new ArrayList<>();
+        StringBuilder sql = new StringBuilder("""
+                SELECT b.id, b.time, e.name, b.x, b.y, b.z, n.data
+                FROM blocks b
+                INNER JOIN levels l ON b.level = l.id
+                INNER JOIN entities e ON b.type = e.id
+                LEFT JOIN gle_nbt n ON b.nbt_id = n.id
+                WHERE l.name = ? AND b.time BETWEEN ? AND ?
+                  AND b.x BETWEEN ? AND ? AND b.y BETWEEN ? AND ? AND b.z BETWEEN ? AND ?
+                  AND COALESCE(b.rolled_back, 0) = ?
+                  AND b.action = """ + GLActions.KILL_ENTITY + "\n");
+        appendPlayerFilters(sql, f, "b.user");
+        sql.append(reverse ? " ORDER BY b.time DESC" : " ORDER BY b.time ASC");
+
+        List<EntityChange> out = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+            int i = bindCommon(ps, f, reverse ? 0 : 1);
+            bindPlayerParams(ps, f, i);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    out.add(new EntityChange(rs.getLong(1), rs.getLong(2), rs.getString(3),
+                            rs.getInt(4), rs.getInt(5), rs.getInt(6), rs.getBytes(7)));
+                }
+            }
+        }
+        return out;
     }
 
     // --- семантика отката ------------------------------------------------------
