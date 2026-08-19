@@ -57,7 +57,11 @@ public final class RollbackData {
                 """);
         sql.append("  AND b.action IN (").append(intList(actions)).append(")\n");
         appendFilters(sql, f, "b");
-        sql.append(" ORDER BY b.time DESC");
+        // Порядок зависит от направления. Откат отменяет действия от новых к старым, поэтому
+        // последней применяется самая старая запись и мир приходит к состоянию на timeFrom.
+        // Restore — обратная операция: он ПРОИГРЫВАЕТ те же действия заново, значит идти надо
+        // от старых к новым, иначе старое действие применится последним и затрёт более новое.
+        sql.append(reverse ? " ORDER BY b.time DESC" : " ORDER BY b.time ASC");
 
         List<BlockChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
@@ -136,7 +140,7 @@ public final class RollbackData {
                 """);
         appendPlayerFilters(sql, f, "c.user");
         appendMaterialFilters(sql, f);
-        sql.append(" ORDER BY c.time DESC");
+        sql.append(reverse ? " ORDER BY c.time DESC" : " ORDER BY c.time ASC");
 
         List<ItemChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {

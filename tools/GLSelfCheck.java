@@ -82,6 +82,7 @@ public final class GLSelfCheck {
         check("помеченная строка исчезла из выборки отката",
                 RollbackData.queryBlocks(c, f, true).isEmpty());
 
+        checkApplyOrder(c);
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
@@ -267,6 +268,40 @@ public final class GLSelfCheck {
             long time, String material, int action, int x, int y, int z) {
         return new com.gle.core.rollback.RollbackData.BlockChange(
                 time, time, material, action, x, y, z, null, null, null);
+    }
+
+    /**
+     * Порядок применения зависит от направления. Откат отменяет действия от новых к старым,
+     * поэтому последней применяется самая старая запись и мир приходит к состоянию на timeFrom.
+     * Restore — обратная операция: он проигрывает те же действия ЗАНОВО, значит идти надо
+     * от старых к новым, иначе старое действие применится последним и затрёт более новое.
+     * <p>
+     * Данные заводятся в стороне от бокса остальных проверок, чтобы их не задеть.
+     */
+    private static void checkApplyOrder(Connection c) throws Exception {
+        String b = "INSERT INTO blocks(id, time, user, level, x, y, z, type, action, rolled_back) "
+                + "VALUES(?, ?, (SELECT id FROM users WHERE uuid='uuid-steve'), 1, 100, 64, 100, 1, 0, ?)";
+        try (PreparedStatement ps = c.prepareStatement(b)) {
+            ps.setLong(1, 10); ps.setLong(2, 5000); ps.setInt(3, 0); ps.executeUpdate();
+            ps.setLong(1, 11); ps.setLong(2, 6000); ps.setInt(3, 0); ps.executeUpdate();
+            ps.setLong(1, 12); ps.setLong(2, 5000); ps.setInt(3, 1); ps.executeUpdate();
+            ps.setLong(1, 13); ps.setLong(2, 6000); ps.setInt(3, 1); ps.executeUpdate();
+        }
+        RollbackFilter f = new RollbackFilter();
+        f.levelName = "minecraft:overworld";
+        f.timeFrom = 0; f.timeTo = Long.MAX_VALUE;
+        f.setBox(100, 64, 100, 2);
+
+        var back = RollbackData.queryBlocks(c, f, true);
+        check("order: откат идёт от новых к старым (получено " + back.size() + " записей)",
+                back.size() == 2 && back.get(0).time() > back.get(1).time());
+
+        var fwd = RollbackData.queryBlocks(c, f, false);
+        check("order: restore проигрывает от старых к новым (получено " + fwd.size() + " записей)",
+                fwd.size() == 2 && fwd.get(0).time() < fwd.get(1).time());
+
+        check("order: откат и restore берут разные наборы строк",
+                back.get(0).id() != fwd.get(0).id());
     }
 
     private static int count(Connection c, String from) throws Exception {
