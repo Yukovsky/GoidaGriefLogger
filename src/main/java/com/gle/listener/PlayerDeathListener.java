@@ -4,6 +4,7 @@ import com.gle.GLEConfig;
 import com.gle.core.BlockLogger;
 import com.gle.core.GLActions;
 import com.gle.core.NbtUtil;
+import com.gle.integration.curios.CuriosSupport;
 import com.gle.core.SourceType;
 import com.gle.core.db.GLStorage;
 import com.gle.core.db.GleEventsDao;
@@ -11,6 +12,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -50,6 +52,14 @@ public final class PlayerDeathListener {
             ListTag list = player.getInventory().save(new ListTag());
             CompoundTag root = new CompoundTag();
             root.put("inv", list);
+            // Curios держит аксессуары ОТДЕЛЬНО от инвентаря игрока, поэтому кольца, пояса и
+            // прочее в снимок не попадали — и после отката дропа восстановить их было не из чего.
+            // Кладём отдельным ключом: читатели старого формата ("inv") не затрагиваются.
+            ListTag curios = new ListTag();
+            for (ItemStack stack : CuriosSupport.equipped(player)) {
+                curios.add(stack.save(player.level().registryAccess()));
+            }
+            if (!curios.isEmpty()) root.put("curios", curios);
             invNbt = NbtUtil.compress(root);
         } catch (Exception ignored) {
             // graceful degradation — пишем запись без инвентаря

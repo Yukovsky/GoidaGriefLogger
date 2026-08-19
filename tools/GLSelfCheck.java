@@ -89,6 +89,7 @@ public final class GLSelfCheck {
         checkMaterialNames();
         checkRolledBackStyling();
         checkMachineActivity();
+        checkOptionalModSupport();
         checkRollbackSemantics();
 
         database.close();
@@ -386,6 +387,19 @@ public final class GLSelfCheck {
 
         byte[] back = com.gle.core.db.NbtStore.load(c, id1);
         check("nbt: снимок читается обратно без искажений", java.util.Arrays.equals(a, back));
+    }
+
+    /**
+     * Доступ к чужим модам идёт рефлексией, чтобы не тянуть их в зависимости. Обязательное
+     * свойство: без мода всё обязано тихо деградировать, а не падать — иначе отсутствие
+     * необязательного мода уронило бы логирование смерти целиком.
+     */
+    private static void checkOptionalModSupport() {
+        // Curios на classpath самопроверки нет — это и есть проверяемый случай.
+        check("curios: без мода поддержка не активируется",
+                !com.gle.integration.curios.CuriosSupport.available());
+        check("curios: без мода возвращается пустой список, а не исключение",
+                com.gle.integration.curios.CuriosSupport.equipped(null).isEmpty());
     }
 
     private static int count(Connection c, String from) throws Exception {
