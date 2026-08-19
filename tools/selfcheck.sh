@@ -6,6 +6,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GRADLE="$(ls -d "$HOME"/.gradle/wrapper/dists/gradle-8.14-bin/*/gradle-8.14/bin/gradle 2>/dev/null | head -1)"
 [ -n "$GRADLE" ] || GRADLE="$ROOT/gradlew"
 
+# Сначала пересобираем: иначе проверки гоняются по УСТАРЕВШИМ классам и молча зеленеют
+# на коде, которого уже нет.
+"$GRADLE" -p "$ROOT" classes -q || exit 1
+
 CP="$("$GRADLE" -p "$ROOT" printRuntimeClasspath -q 2>/dev/null | tail -1)"
 OUT="$ROOT/build/selfcheck"
 mkdir -p "$OUT"
