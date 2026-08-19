@@ -83,6 +83,7 @@ public final class GLSelfCheck {
                 RollbackData.queryBlocks(c, f, true).isEmpty());
 
         checkApplyOrder(c);
+        checkRoundTrip(c);
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
@@ -302,6 +303,47 @@ public final class GLSelfCheck {
 
         check("order: откат и restore берут разные наборы строк",
                 back.get(0).id() != fwd.get(0).id());
+    }
+
+    /**
+     * Restore — обратная операция к откату, значит наборы строк обязаны сходиться:
+     * что откат пометил применённым, то restore и должен взять, ничего сверх и ничего меньше.
+     */
+    private static void checkRoundTrip(Connection c) throws Exception {
+        String ins = "INSERT INTO containers(id, time, user, level, x, y, z, type, amount, action, rolled_back) "
+                + "VALUES(?, ?, (SELECT id FROM users WHERE uuid='uuid-steve'), 1, 200, 64, 200, 1, 4, ?, 0)";
+        try (PreparedStatement ps = c.prepareStatement(ins)) {
+            ps.setLong(1, 40); ps.setLong(2, 1000); ps.setInt(3, 1); ps.executeUpdate(); // ADD
+            ps.setLong(1, 41); ps.setLong(2, 2000); ps.setInt(3, 0); ps.executeUpdate(); // REMOVE
+        }
+        RollbackFilter f = new RollbackFilter();
+        f.levelName = "minecraft:overworld";
+        f.timeFrom = 0; f.timeTo = Long.MAX_VALUE;
+        f.setBox(200, 64, 200, 2);
+
+        var toRollback = RollbackData.queryItems(c, f, true);
+        check("roundtrip: откат видит обе новые строки", toRollback.size() == 2);
+        check("roundtrip: до отката restore не видит ничего",
+                RollbackData.queryItems(c, f, false).isEmpty());
+
+        // Откат применил обе — помечаем ровно их.
+        var applied = new java.util.ArrayList<Long>();
+        for (var ch : toRollback) applied.add(ch.id());
+        RollbackData.markRolledBack(c, "containers", applied, 1);
+
+        var toRestore = RollbackData.queryItems(c, f, false);
+        check("roundtrip: restore берёт ровно то, что пометил откат (" + toRestore.size() + " из 2)",
+                toRestore.size() == 2);
+        var restoreIds = new java.util.HashSet<Long>();
+        for (var ch : toRestore) restoreIds.add(ch.id());
+        check("roundtrip: наборы строк совпадают", restoreIds.containsAll(applied));
+        check("roundtrip: после отката повторный откат ничего не берёт",
+                RollbackData.queryItems(c, f, true).isEmpty());
+
+        // Restore снимает пометку — цикл замыкается.
+        RollbackData.markRolledBack(c, "containers", applied, 0);
+        check("roundtrip: после restore откат снова видит строки",
+                RollbackData.queryItems(c, f, true).size() == 2);
     }
 
     private static int count(Connection c, String from) throws Exception {
