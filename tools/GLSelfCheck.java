@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Автономная самопроверка слоя выборки для отката: поднимает НАСТОЯЩУЮ схему через
@@ -84,6 +85,7 @@ public final class GLSelfCheck {
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
+        checkMachineActivity();
 
         database.close();
         if (failures > 0) {
@@ -190,6 +192,48 @@ public final class GLSelfCheck {
                 rolled.getString().indexOf('\u00a7') < 0);
         check("lookup: текст строки не потерян",
                 rolled.getString().contains("Steve") && rolled.getString().contains("stone"));
+    }
+
+    /**
+     * Учёт собственной работы машины. Именно на этой арифметике держится то, что игроку
+     * не приписывается переплавка — и, что важнее, что игроку ПРИПИСЫВАЕТСЯ всё остальное,
+     * включая изъятие из слотов топлива и входа (через них прятали предметы).
+     */
+    private static void checkMachineActivity() {
+        var pos = new net.minecraft.core.BlockPos(10, 64, -3);
+        var other = new net.minecraft.core.BlockPos(11, 64, -3);
+
+        check("machine: без старта учёт не ведётся", !com.gle.core.MachineActivity.isTracked(pos));
+        com.gle.core.MachineActivity.start(pos);
+        check("machine: после старта учёт ведётся", com.gle.core.MachineActivity.isTracked(pos));
+        check("machine: соседняя позиция не отслеживается", !com.gle.core.MachineActivity.isTracked(other));
+
+        // Тик 1: сожгла уголь. Тик 2: превратила руду в слиток.
+        com.gle.core.MachineActivity.record(pos,
+                Map.of("coal", 8, "raw_iron", 3),
+                Map.of("coal", 7, "raw_iron", 3));
+        com.gle.core.MachineActivity.record(pos,
+                Map.of("coal", 7, "raw_iron", 3),
+                Map.of("coal", 7, "raw_iron", 2, "iron_ingot", 1));
+
+        var acc = com.gle.core.MachineActivity.stop(pos);
+        check("machine: расход топлива учтён (coal=-1, получено " + acc.get("coal") + ")",
+                Integer.valueOf(-1).equals(acc.get("coal")));
+        check("machine: расход сырья учтён (raw_iron=-1)",
+                Integer.valueOf(-1).equals(acc.get("raw_iron")));
+        check("machine: произведённое учтено (iron_ingot=+1)",
+                Integer.valueOf(1).equals(acc.get("iron_ingot")));
+        check("machine: stop снимает учёт", !com.gle.core.MachineActivity.isTracked(pos));
+
+        // Ключевой сценарий дыры: игрок положил алмаз в слот топлива и позже забрал.
+        // Машина к алмазу непричастна, значит вычитать нечего и оба действия обязаны логироваться.
+        com.gle.core.MachineActivity.start(pos);
+        com.gle.core.MachineActivity.record(pos, Map.of("coal", 5), Map.of("coal", 4));
+        var acc2 = com.gle.core.MachineActivity.stop(pos);
+        check("machine: предмет, которого машина не касалась, не вычитается",
+                acc2.get("diamond") == null);
+
+        check("machine: stop без start возвращает пустое", com.gle.core.MachineActivity.stop(other).isEmpty());
     }
 
     private static int count(Connection c, String from) throws Exception {

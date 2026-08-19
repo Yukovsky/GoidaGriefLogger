@@ -16,6 +16,8 @@
     "BlockCapabilityMixin",
     "ProjectileMixin",
     "ItemDurabilityMixin",
+    "MachineTickMixin",
+    "BrewingStandTickMixin",
     "AbstractArrowAccessor"
   ],
   "client": [],

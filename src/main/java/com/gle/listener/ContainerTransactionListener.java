@@ -4,6 +4,7 @@ import com.gle.GLEConfig;
 import com.gle.core.GLActions;
 import com.gle.core.GLMaterials;
 import com.gle.core.ItemData;
+import com.gle.core.MachineActivity;
 import com.gle.core.db.ContainerLogDao;
 import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
@@ -15,7 +16,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.minecraft.world.level.block.entity.AbstractFurnaceBlockEntity;
 import net.minecraft.world.level.block.entity.EnderChestBlockEntity;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -52,18 +52,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class ContainerTransactionListener {
 
     private record Pending(String dim, BlockPos pos, long time) {}
-    private record OpenSnapshot(String dim, BlockPos pos, Map<String, ItemStack> before,
-                                List<ItemStack> beforeSlots, boolean furnace) {}
+    private record OpenSnapshot(String dim, BlockPos pos, Map<String, ItemStack> before) {}
 
     private static final Map<UUID, Pending> PENDING = new ConcurrentHashMap<>();
     private static final Map<UUID, OpenSnapshot> OPEN = new ConcurrentHashMap<>();
 
     /** Игрок должен быть рядом с блоком, снимок которого мы берём (замена таймауту «2 секунды»). */
     private static final double MAX_REACH_SQR = 8.0 * 8.0;
-
-    /** Раскладка слотов печи: 0=вход, 1=топливо, 2=результат.
-     *  {@code AbstractFurnaceBlockEntity.SLOT_*} объявлены protected и извне недоступны. */
-    private static final int SLOT_RESULT = 2;
 
     /** Клик по блоку с предметным хендлером (не ванильный контейнер) — запоминаем позицию. */
     @SubscribeEvent
@@ -98,8 +93,10 @@ public final class ContainerTransactionListener {
         IItemHandler handler = handlerAt(level, pend.pos());
         if (handler == null) return;
         OPEN.put(sp.getUUID(), new OpenSnapshot(pend.dim(), pend.pos(),
-                snapshot(handler, level.registryAccess()), snapshotSlots(handler),
-                level.getBlockEntity(pend.pos()) instanceof AbstractFurnaceBlockEntity));
+                snapshot(handler, level.registryAccess())));
+        // С этого момента машина на этой позиции отчитывается о собственном расходе,
+        // чтобы её работа не приписалась игроку и не скрыла его действия.
+        MachineActivity.start(pend.pos());
     }
 
     /** Меню закрылось — сравниваем «до» и «после», пишем дельты. */
@@ -122,7 +119,8 @@ public final class ContainerTransactionListener {
     public void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         PENDING.remove(event.getEntity().getUUID());
         OpenSnapshot snap = OPEN.remove(event.getEntity().getUUID());
-        if (snap == null || !GLStorage.isReady()) return;
+        if (snap == null) return;
+        if (!GLStorage.isReady()) { MachineActivity.stop(snap.pos()); return; }
         if (event.getEntity() instanceof ServerPlayer sp && sp.level() instanceof ServerLevel level) {
             finishSnapshot(level, sp, snap);
         }
@@ -135,62 +133,15 @@ public final class ContainerTransactionListener {
      */
     private static void finishSnapshot(ServerLevel level, ServerPlayer sp, OpenSnapshot snap) {
         IItemHandler handler = handlerAt(level, snap.pos());
-        if (snap.furnace() && handler != null) {
-            logFurnaceDiff(level, snap, sp, snapshotSlots(handler));
-            return;
-        }
         Map<String, ItemStack> after = handler == null
                 ? Map.of()
                 : snapshot(handler, level.registryAccess());
-        logDiff(level, snap, sp, after);
-    }
-
-    /** Послотовый снимок (копии) — нужен там, где роль слота важна. */
-    private static List<ItemStack> snapshotSlots(IItemHandler handler) {
-        List<ItemStack> out = new ArrayList<>(handler.getSlots());
-        for (int i = 0; i < handler.getSlots(); i++) out.add(handler.getStackInSlot(i).copy());
-        return out;
+        logDiff(level, snap, sp, after, MachineActivity.stop(snap.pos()));
     }
 
     /**
-     * Печь/коптильня/доменная печь тикают САМИ, в том числе пока их GUI открыт. Агрегированный
-     * дифф записывал сожжённое топливо и выплавленный продукт на счёт игрока, который просто
-     * смотрел на процесс. Здесь считаем по ролям слотов (0=вход, 1=топливо, 2=результат) и пишем
-     * только то, что игрок физически мог сделать:
-     * <ul>
-     *   <li>прирост во входе/топливе — игрок положил;</li>
-     *   <li>убыль в результате — игрок забрал.</li>
-     * </ul>
-     * ponytail: убыль во входе/топливе неотличима от переплавки, поэтому не пишется — потерять
-     * редкое «игрок забрал свой уголь» лучше, чем штамповать ложные записи на каждую переплавку.
-     * Точное разделение потребовало бы перехвата самого рецепта (миксин в AbstractFurnaceBlockEntity).
-     */
-    private static void logFurnaceDiff(ServerLevel level, OpenSnapshot snap, ServerPlayer player,
-                                       List<ItemStack> after) {
-        List<ItemStack> before = snap.beforeSlots();
-        int slots = Math.min(before.size(), after.size());
-        for (int slot = 0; slot < slots; slot++) {
-            ItemStack b = before.get(slot);
-            ItemStack a = after.get(slot);
-            boolean sameItem = ItemStack.isSameItemSameComponents(b, a);
-            int delta = (a.isEmpty() ? 0 : a.getCount()) - (b.isEmpty() ? 0 : b.getCount());
-
-            if (slot == SLOT_RESULT) {
-                // Забрать из слота результата может только игрок — прирост там даёт переплавка.
-                int taken = sameItem ? -delta : b.getCount();
-                write(level, snap, player, b, taken, GLActions.REMOVE_ITEM);
-                continue;
-            }
-            // Слоты входа и топлива: только прирост — это заведомо действие игрока.
-            int added = sameItem ? delta : a.getCount();
-            write(level, snap, player, a, added, GLActions.ADD_ITEM);
-        }
-    }
-
-    /**
-     * Подходит ли блок: есть предметный хендлер. После поглощения GriefLogger (Путь E) сюда
-     * попадают И ванильные контейнеры ({@code BaseContainerBlockEntity} — сундуки/бочки/печи/…),
-     * И модовые хранилища на capability — единый писатель ведёт транзакции для всех.
+     * Подходит ли блок: есть предметный хендлер. Сюда попадают И ванильные контейнеры
+     * (NeoForge регистрирует item-handler и для них), И модовые хранилища на capability.
      * Эндер-сундук исключён: его персональный инвентарь в блоке не хранится, им занимается
      * {@link EnderChestListener}.
      */
@@ -202,6 +153,8 @@ public final class ContainerTransactionListener {
 
     private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
         try {
+            // side=null: для сторонних контейнеров это даёт ПОЛНЫЙ инвентарь, а не вид с грани
+            // (SidedInvWrapper при null отдаёт getContainerSize и прямую нумерацию слотов).
             return level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
         } catch (Exception e) {
             return null;
@@ -222,7 +175,12 @@ public final class ContainerTransactionListener {
         return map;
     }
 
-    private static void logDiff(ServerLevel level, OpenSnapshot snap, ServerPlayer player, Map<String, ItemStack> after) {
+    /**
+     * @param machine что машина (печь, варочная стойка) израсходовала и произвела сама за время,
+     *                пока GUI был открыт. Вычитается из общей разницы: остаток — действия игрока.
+     */
+    private static void logDiff(ServerLevel level, OpenSnapshot snap, ServerPlayer player,
+                                Map<String, ItemStack> after, Map<String, Integer> machine) {
         Map<String, ItemStack> before = snap.before();
         Set<String> keys = new HashSet<>(before.keySet());
         keys.addAll(after.keySet());
@@ -232,7 +190,8 @@ public final class ContainerTransactionListener {
             ItemStack a = after.get(key);
             int bc = b == null ? 0 : b.getCount();
             int ac = a == null ? 0 : a.getCount();
-            int delta = ac - bc;
+            // Собственная работа машины — не действие игрока, вычитаем её.
+            int delta = (ac - bc) - machine.getOrDefault(key, 0);
             if (delta == 0) continue;
 
             ItemStack rep = a != null ? a : b;
@@ -243,7 +202,7 @@ public final class ContainerTransactionListener {
         }
     }
 
-    /** Единая точка записи строки {@code containers} для обычного и печного диффа. */
+    /** Единая точка записи строки {@code containers}. */
     private static void write(ServerLevel level, OpenSnapshot snap, ServerPlayer player,
                               ItemStack rep, int amount, int action) {
         if (amount <= 0 || rep.isEmpty()) return;
@@ -266,15 +225,8 @@ public final class ContainerTransactionListener {
                 action));
     }
 
-    /** Канонический ключ предмета: registry-имя + base64 байтов компонентов. */
+    /** Ключ предмета — общий с {@link MachineActivity}, иначе вычитание не сойдётся. */
     private static String key(ItemStack s, RegistryAccess reg) {
-        ResourceLocation id = BuiltInRegistries.ITEM.getKey(s.getItem());
-        String comp;
-        try {
-            comp = Base64.getEncoder().encodeToString(ItemData.serialize(s, reg));
-        } catch (Exception e) {
-            comp = "";
-        }
-        return id + "#" + comp;
+        return com.gle.core.ItemKey.of(s, reg);
     }
 }
