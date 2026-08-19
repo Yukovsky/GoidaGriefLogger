@@ -44,7 +44,9 @@ public final class BlockRestorer {
      * @param reverse true = откат (PLACE→air, BREAK→вернуть блок); false = restore (PLACE→поставить, BREAK→air)
      * @return true если что-то применено.
      */
-    public static boolean apply(ServerLevel level, RollbackData.BlockChange change, boolean reverse) {
+    /** @return {@code null}, если изменение применено, иначе краткая причина отказа. */
+    @Nullable
+    public static String apply(ServerLevel level, RollbackData.BlockChange change, boolean reverse) {
         BlockPos pos = new BlockPos(change.x(), change.y(), change.z());
 
         // Восстанавливаем содержимое BlockEntity только когда возвращаем сломанный блок (откат BREAK).
@@ -65,7 +67,7 @@ public final class BlockRestorer {
 
         BlockState target = embeddedState != null ? embeddedState
                 : (reverse ? computeReverseState(level, change) : computeForwardState(level, change));
-        if (target == null) return false;
+        if (target == null) return "не удалось определить блок '" + change.material() + "'";
 
         BlockState previous = level.getBlockState(pos);
         clearContainer(level, pos); // не даём выпасть предметам из заменяемого контейнера
@@ -84,7 +86,7 @@ public final class BlockRestorer {
         // UPDATE_CLIENTS, а он уведомляет клиентов сам. Явный вызов был дублирующим пакетом
         // на КАЖДЫЙ откаченный блок. Данные BlockEntity уходят тем же обновлением: позиция
         // зарегистрирована сменой состояния, а рассылка идёт в конце тика — уже после загрузки NBT.
-        return true;
+        return null;
     }
 
     /**

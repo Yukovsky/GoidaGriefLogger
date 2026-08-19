@@ -15,6 +15,7 @@ import net.neoforged.neoforge.items.IItemHandler;
 import net.neoforged.neoforge.items.wrapper.InvWrapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Реверс изменений содержимого контейнеров.
@@ -33,25 +34,34 @@ public final class ItemRestorer {
     /**
      * @param reverse true = откат (обратить запись), false = restore (повторить запись).
      */
-    public static boolean apply(ServerLevel level, RollbackData.ItemChange change, boolean reverse) {
+    /**
+     * @return {@code null}, если изменение применено, иначе краткая причина отказа.
+     *         Раньше метод отдавал только {@code boolean}, и оператор видел голое «ошибок 5»
+     *         без единой подсказки, что именно не сложилось.
+     */
+    @Nullable
+    public static String apply(ServerLevel level, RollbackData.ItemChange change, boolean reverse) {
         BlockPos pos = new BlockPos(change.x(), change.y(), change.z());
         // Захват содержимого идёт через capability ItemHandler, поэтому и восстановление обязано.
         // Раньше здесь стоял только `instanceof Container`, а модовые вместилища (Create Item Vault,
         // Sophisticated Backpacks, Tom's Storage) Container НЕ реализуют — для них откат молча
         // возвращал false, то есть «откат контейнеров» для них просто не работал.
         IItemHandler handler = handlerAt(level, pos);
-        if (handler == null) return false;
+        if (handler == null) return "нет контейнера на " + pos.toShortString();
 
         ItemStack stack = reconstruct(level, change);
-        if (stack.isEmpty()) return false;
+        if (stack.isEmpty()) return "неизвестный предмет '" + change.material() + "'";
 
         // containers содержит только ADD_ITEM/REMOVE_ITEM (PICKUP пишется в таблицу items и сюда не выбирается).
         boolean wasAdd = change.action() == GLActions.ADD_ITEM;
         // откат: добавление → убрать, изъятие → вернуть. restore: наоборот.
         boolean removeNow = reverse == wasAdd;
-        return removeNow
-                ? removeMatching(handler, stack, change.amount())
-                : insert(level, pos, handler, stack);
+        if (removeNow) {
+            return removeMatching(handler, stack, change.amount()) ? null
+                    : "в контейнере на " + pos.toShortString() + " нет " + change.material();
+        }
+        return insert(level, pos, handler, stack) ? null
+                : "нет места для " + change.material() + " в контейнере на " + pos.toShortString();
     }
 
     /**

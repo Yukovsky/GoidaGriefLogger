@@ -8,6 +8,7 @@ import net.minecraft.server.level.ServerLevel;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -63,6 +64,24 @@ public final class RollbackJob {
     private final List<Long> appliedContainerIds = new ArrayList<>();
 
     /**
+     * Причины отказов (без повторов, не больше {@link #MAX_REASONS}). Голое «ошибок 5» ничего
+     * не говорит оператору: непонятно, контейнер исчез, места не хватило или блок не опознан.
+     */
+    private final Set<String> failureReasons = new LinkedHashSet<>();
+    private static final int MAX_REASONS = 3;
+
+    private void noteFailure(String why) {
+        if (why != null && failureReasons.size() < MAX_REASONS) failureReasons.add(why);
+    }
+
+    /** Хвост сообщения с причинами отказов, либо пусто. */
+    private String reasonsSuffix() {
+        if (failureReasons.isEmpty()) return "";
+        String joined = String.join("; ", failureReasons);
+        return " §7(" + joined + (failed > failureReasons.size() ? "; …" : "") + ")";
+    }
+
+    /**
      * Позиции, которые этот же откат превратил в воздух (реверс PLACE_BLOCK). Дельты
      * {@code containers} по ним применить физически невозможно — контейнера там больше нет.
      * Это не ошибка, а прямое следствие отката, поэтому в счётчик {@code failed} они не идут.
@@ -93,7 +112,8 @@ public final class RollbackJob {
         int budget = GLEConfig.batchSize.get();
         while (budget > 0 && blockIdx < blocks.size()) {
             RollbackData.BlockChange ch = blocks.get(blockIdx++);
-            if (BlockRestorer.apply(level, ch, reverse)) {
+            String why = BlockRestorer.apply(level, ch, reverse);
+            if (why == null) {
                 affectedBlocks++;
                 appliedBlockIds.add(ch.id());
                 // Откат слома контейнера со снимком NBT уже точно восстановил его содержимое.
@@ -103,7 +123,7 @@ public final class RollbackJob {
                 if (reverse && ch.action() == GLActions.PLACE_BLOCK) {
                     clearedPositions.add(new BlockPos(ch.x(), ch.y(), ch.z()).asLong());
                 }
-            } else failed++;
+            } else { failed++; noteFailure(why); }
             budget--;
         }
         while (budget > 0 && itemIdx < items.size()) {
@@ -122,10 +142,11 @@ public final class RollbackJob {
                 appliedContainerIds.add(ch.id());
                 continue;
             }
-            if (ItemRestorer.apply(level, ch, reverse)) {
+            String why = ItemRestorer.apply(level, ch, reverse);
+            if (why == null) {
                 affectedContainers++;
                 appliedContainerIds.add(ch.id());
-            } else failed++;
+            } else { failed++; noteFailure(why); }
         }
 
         if (++tickCounter % GLEConfig.progressIntervalTicks.get() == 0) {
@@ -146,6 +167,6 @@ public final class RollbackJob {
                 List.copyOf(appliedBlockIds), List.copyOf(appliedContainerIds));
         feedback.accept(Component.literal((reverse ? "§a[GLE] Откат" : "§a[GLE] Restore") + " завершён ("
                 + status + "): блоков " + affectedBlocks + ", контейнеров " + affectedContainers
-                + (failed > 0 ? ", §cошибок " + failed : "") + "§a."));
+                + (failed > 0 ? ", §cошибок " + failed + reasonsSuffix() : "") + "§a."));
     }
 }
