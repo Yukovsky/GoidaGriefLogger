@@ -61,6 +61,9 @@ public final class GLCommand {
                 .then(Commands.literal("preview")
                         .requires(GLEPermissions::canPreview)
                         .then(Commands.literal("cancel").executes(GLCommand::doPreviewCancel))
+                        .then(Commands.literal("accept")
+                                .requires(GLEPermissions::canRollback)
+                                .executes(GLCommand::doPreviewAccept))
                         .then(Commands.argument("args", StringArgumentType.greedyString())
                                 .suggests(filterSuggest)
                                 .executes(ctx -> doPreview(ctx, StringArgumentType.getString(ctx, "args")))))
@@ -214,6 +217,25 @@ public final class GLCommand {
         return 1;
     }
 
+    /**
+     * Применить то, что показано в превью: берём фильтр той же команды и запускаем им откат.
+     * Избавляет от повторного набора радиуса и времени — по аналогии с {@code preview cancel}.
+     */
+    private static int doPreviewAccept(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        ServerPlayer player = src.getPlayer();
+        if (player == null) { src.sendFailure(Component.literal("Команду должен выполнять игрок.")); return 0; }
+        RollbackFilter f = PreviewManager.get().accept(player);
+        if (f == null) {
+            src.sendSystemMessage(Component.literal("§7Активного preview нет — нечего применять."));
+            return 0;
+        }
+        String err = RollbackManager.get().startRollback(player.server, player.getUUID(),
+                player.getGameProfile().getName(), f, msg -> src.sendSystemMessage(msg));
+        if (err != null) { src.sendFailure(Component.literal("§c" + err)); return 0; }
+        return 1;
+    }
+
     private static int doPreviewCancel(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack src = ctx.getSource();
         ServerPlayer player = src.getPlayer();
@@ -293,7 +315,7 @@ public final class GLCommand {
         s.sendSystemMessage(Component.literal("§e/gl restore <фильтры>§7 — вернуть откатанное (те же фильтры, как в CoreProtect)"));
         s.sendSystemMessage(Component.literal("§e/gl lookup <фильтры>§7 — история (откатанное §mзачёркнуто§r§7); §e/gl page <n>§7 — страница"));
         s.sendSystemMessage(Component.literal("§e/gl inspect§7 — режим инспектора: клик по блоку → история места (повторно — выключить)"));
-        s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview cancel"));
+        s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview accept§7 — применить; §e/gl preview cancel"));
         s.sendSystemMessage(Component.literal("§e/gl abort§7 — стоп активного задания; §e/gl status"));
         s.sendSystemMessage(Component.literal("§6Фильтры §7(можно полные и краткие имена):"));
         s.sendSystemMessage(Component.literal("§7  time:§f|t:§f<время>§7 — 1h, 30m, 1d, 1d12h §o(обязательно)"));

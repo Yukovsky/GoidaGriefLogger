@@ -44,14 +44,17 @@ public final class PreviewManager {
         final BlockPos origin;
         /** Границы области фильтра — по ним рисуется рамка из партиклов. */
         final BlockPos boxMin, boxMax;
+        /** Фильтр, которым запускали превью: по нему же выполняется accept. */
+        final RollbackFilter filter;
         Session(ServerLevel level, Map<BlockPos, BlockState> realStates, BlockPos origin,
-                BlockPos boxMin, BlockPos boxMax) {
+                BlockPos boxMin, BlockPos boxMax, RollbackFilter filter) {
             this.level = level;
             this.realStates = realStates;
             this.startedAt = System.currentTimeMillis();
             this.origin = origin;
             this.boxMin = boxMin;
             this.boxMax = boxMax;
+            this.filter = filter;
         }
     }
 
@@ -114,9 +117,22 @@ public final class PreviewManager {
         }
         sessions.put(player.getUUID(), new Session(level, real, player.blockPosition(),
                 new BlockPos(filter.minX, filter.minY, filter.minZ),
-                new BlockPos(filter.maxX, filter.maxY, filter.maxZ)));
+                new BlockPos(filter.maxX, filter.maxY, filter.maxZ), filter.copy()));
         out.accept(Component.literal("§b[Preview] Затронуто блоков: " + preview.size()
                 + ". §7Используйте /gl rollback ... для применения или /gl preview cancel."));
+    }
+
+    /**
+     * Снять превью и вернуть фильтр, которым его запускали, — чтобы применить его откатом
+     * без повторного набора координат и времени. {@code null}, если активного превью нет.
+     */
+    @org.jetbrains.annotations.Nullable
+    public RollbackFilter accept(ServerPlayer player) {
+        Session s = sessions.remove(player.getUUID());
+        if (s == null) return null;
+        // Возвращаем настоящие блоки: дальше их изменит уже сам откат, по-настоящему.
+        revert(player, s);
+        return s.filter;
     }
 
     public boolean cancel(ServerPlayer player) {
