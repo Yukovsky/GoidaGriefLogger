@@ -3,6 +3,7 @@ package com.gle.integration.create.mixin;
 import com.gle.GLEConfig;
 import com.gle.core.GriefContext;
 import com.gle.core.SystemUsers;
+import com.gle.integration.create.ContraptionOwner;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -21,21 +22,23 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public class ContraptionMixin {
 
     @Inject(method = "addBlocksToWorld", at = @At("HEAD"), require = 0, remap = false)
-    private void gle$pushAdd(CallbackInfo ci) { gle$push(); }
+    private void gle$pushAdd(CallbackInfo ci) { gle$push(this); }
 
     @Inject(method = "addBlocksToWorld", at = @At("RETURN"), require = 0, remap = false)
     private void gle$popAdd(CallbackInfo ci) { gle$pop(); }
 
     @Inject(method = "removeBlocksFromWorld", at = @At("HEAD"), require = 0, remap = false)
-    private void gle$pushRemove(CallbackInfo ci) { gle$push(); }
+    private void gle$pushRemove(CallbackInfo ci) { gle$push(this); }
 
     @Inject(method = "removeBlocksFromWorld", at = @At("RETURN"), require = 0, remap = false)
     private void gle$popRemove(CallbackInfo ci) { gle$pop(); }
 
-    private static void gle$push() {
-        if (GLEConfig.enableCreateIntegration.get()) {
-            GriefContext.push("create:contraption", SystemUsers.CREATE);
-        }
+    private static void gle$push(Object contraption) {
+        if (!GLEConfig.enableCreateIntegration.get()) return;
+        // Если Create знает управляющего игрока (поезда, управляемые контрапции) — пишем на него,
+        // а не на [CREATE]. Иначе остаётся прежняя системная атрибуция: догадок не делаем.
+        GriefContext.push("create:contraption", SystemUsers.CREATE,
+                ContraptionOwner.uuidOf(contraption));
     }
 
     private static void gle$pop() {

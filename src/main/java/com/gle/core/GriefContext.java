@@ -24,8 +24,17 @@ public final class GriefContext {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("GLE/GriefContext");
 
-    /** Атрибуция изменения: значение колонки {@code source_type} и имя системного пользователя. */
-    public record Attribution(String sourceType, String systemUser) {}
+    /**
+     * Атрибуция изменения: {@code source_type}, имя системного пользователя и — если инициатор
+     * известен поимённо — uuid реального игрока. Последнее нужно там, где действие технически
+     * совершает механизм, но за ним стоит конкретный человек: например контрапция Create,
+     * которой кто-то управляет. Без этого всё писалось на системного пользователя.
+     */
+    public record Attribution(String sourceType, String systemUser, @Nullable String playerUuid) {
+        public Attribution(String sourceType, String systemUser) {
+            this(sourceType, systemUser, null);
+        }
+    }
 
     private static final ThreadLocal<ArrayDeque<Attribution>> STACK = ThreadLocal.withInitial(ArrayDeque::new);
 
@@ -38,7 +47,12 @@ public final class GriefContext {
      * последующие тики, приписывая чужие изменения этому источнику.
      */
     public static Scope push(String sourceType, String systemUser) {
-        STACK.get().push(new Attribution(sourceType, systemUser));
+        return push(sourceType, systemUser, null);
+    }
+
+    /** @param playerUuid реальный инициатор, если известен; иначе {@code null}. */
+    public static Scope push(String sourceType, String systemUser, @Nullable String playerUuid) {
+        STACK.get().push(new Attribution(sourceType, systemUser, playerUuid));
         return POP;
     }
 

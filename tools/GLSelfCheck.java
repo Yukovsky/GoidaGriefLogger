@@ -400,6 +400,18 @@ public final class GLSelfCheck {
                 !com.gle.integration.curios.CuriosSupport.available());
         check("curios: без мода возвращается пустой список, а не исключение",
                 com.gle.integration.curios.CuriosSupport.equipped(null).isEmpty());
+
+        // Create тоже нет на classpath — резолв владельца обязан тихо отдать null.
+        check("create: владелец контрапции без мода — null, без исключения",
+                com.gle.integration.create.ContraptionOwner.uuidOf(null) == null);
+        check("create: посторонний объект не ломает резолв",
+                com.gle.integration.create.ContraptionOwner.uuidOf("не контрапция") == null);
+
+        // Атрибуция без игрока обязана остаться системной, с игроком — нести его uuid.
+        var system = new com.gle.core.GriefContext.Attribution("create:contraption", "[CREATE]");
+        check("attribution: без игрока uuid пуст", system.playerUuid() == null);
+        var owned = new com.gle.core.GriefContext.Attribution("create:contraption", "[CREATE]", "uuid-steve");
+        check("attribution: игрок доносится до записи", "uuid-steve".equals(owned.playerUuid()));
     }
 
     private static int count(Connection c, String from) throws Exception {

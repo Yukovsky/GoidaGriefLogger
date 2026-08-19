@@ -40,10 +40,11 @@ public abstract class LevelChunkMixin {
         BlockState old = self.getBlockState(pos);
         if (old.getBlock() == state.getBlock()) return;
         if (grief != null) {
-            gle$logGrief(level, pos.immutable(), old, state, grief.sourceType(), grief.systemUser());
+            gle$logGrief(level, pos.immutable(), old, state, grief.sourceType(),
+                    grief.systemUser(), grief.playerUuid());
         } else if (mob != null) {
             GLESourceResolver.Resolved src = GLESourceResolver.resolve(mob);
-            gle$logGrief(level, pos.immutable(), old, state, src.sourceType(), src.systemUser());
+            gle$logGrief(level, pos.immutable(), old, state, src.sourceType(), src.systemUser(), null);
         } else {
             EnvironmentLogger.consider(level, pos.immutable(), old, state);
         }
@@ -51,11 +52,18 @@ public abstract class LevelChunkMixin {
 
     /** Изменение блока в активном не-игровом контексте (гравитация, гриферство мобов и т.п.). */
     private static void gle$logGrief(ServerLevel level, BlockPos pos, BlockState old, BlockState state,
-                                     String sourceType, String systemUser) {
+                                     String sourceType, String systemUser, String playerUuid) {
         boolean place = !state.isAir();
         int action = place ? GLActions.PLACE_BLOCK : GLActions.BREAK_BLOCK;
         BlockState logged = place ? state : old;
         // Для слома захватываем NBT (контейнеры/ориентация), для установки — нет.
+        if (playerUuid != null) {
+            // Инициатор известен поимённо — пишем на него, а не на системного пользователя.
+            java.util.UUID uuid = null;
+            try { uuid = java.util.UUID.fromString(playerUuid); } catch (IllegalArgumentException ignored) {}
+            BlockLogger.logAs(level, pos, logged, action, sourceType, playerUuid, uuid, null, !place);
+            return;
+        }
         BlockLogger.log(level, pos, logged, action, sourceType, systemUser, null, null, !place);
     }
 }
