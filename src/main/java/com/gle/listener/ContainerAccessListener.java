@@ -3,6 +3,7 @@ package com.gle.listener;
 import com.gle.GLEConfig;
 import com.gle.core.GLActions;
 import com.gle.core.GLMaterials;
+import com.gle.core.VanillaInteractables;
 import com.gle.core.db.BlockLogDao;
 import com.gle.core.db.GLStorage;
 import net.minecraft.core.BlockPos;
@@ -51,12 +52,13 @@ public final class ContainerAccessListener {
         BlockPos pos = event.getPos();
         BlockState state = level.getBlockState(pos);
         ResourceLocation key = BuiltInRegistries.BLOCK.getKey(state.getBlock());
-        // Ванильные интерактивные блоки логирует VanillaInteractListener (точный набор GL);
-        // здесь — только МОДОВЫЕ хранилища/терминалы (не minecraft), которых нет в наборе GL.
-        // Раньше здесь стоял пропуск ванильных блоков: их логировал сам GriefLogger.
-        // После его поглощения (Путь E) пропуск означал, что открытие ванильного сундука/
-        // бочки/печи не пишется вообще. Оставляем только чёрные списки.
         if (key == null) return;
+        // Блоки из набора VanillaInteractables пишет VanillaInteractListener. Без этой проверки
+        // сундуки, бочки, печи и шалкеры логировались ДВАЖДЫ: обоими листенерами на один клик.
+        // Проверяем именно по набору, а не по namespace "minecraft": так отсекаются и модовые
+        // блоки, унаследованные от ванильных (например чужой сундук от AbstractChestBlock),
+        // которые VanillaInteractListener тоже подхватывает.
+        if (VanillaInteractables.isInteractable(state.getBlock())) return;
         if (!isStorageAccess(level, pos, state)) return;
 
         String dimension = level.dimension().location().toString();
