@@ -30,11 +30,13 @@ public final class BlockLogDao {
     private final GLDatabase db;
     private final WriteQueue queue;
     private final IdCache ids;
+    private final NbtStore nbt;
 
-    public BlockLogDao(GLDatabase db, WriteQueue queue, IdCache ids) {
+    public BlockLogDao(GLDatabase db, WriteQueue queue, IdCache ids, NbtStore nbt) {
         this.db = db;
         this.queue = queue;
         this.ids = ids;
+        this.nbt = nbt;
     }
 
     /** Снимок одной записи блока. */
@@ -100,10 +102,15 @@ public final class BlockLogDao {
      * колонка {@code blocks.type} ссылается на {@code entities.id} (а не на {@code materials.id}).
      * Инспектор различает это по {@code action == KILL_ENTITY}.
      */
+    /**
+     * @param entityNbt очищенный снимок сущности или {@code null}, если она ничем не отличается
+     *                  от обычной особи своего типа. Снимок кладётся в дедуплицирующее хранилище,
+     *                  строка ссылается на него по id — одинаковые снимки не размножаются.
+     */
     public void insertEntityKill(long time, String userUuid, String levelName,
-                                 int x, int y, int z, String entityName) {
-        final String blockSql = "INSERT INTO blocks(time, user, level, x, y, z, type, action) "
-                + "VALUES(?, ?, ?, ?, ?, ?, ?, ?)";
+                                 int x, int y, int z, String entityName, byte @Nullable [] entityNbt) {
+        final String blockSql = "INSERT INTO blocks(time, user, level, x, y, z, type, action, nbt_id) "
+                + "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         queue.submit((conn, sink) -> {
             Integer userId = ids.userIdOrCreate(conn, userUuid);

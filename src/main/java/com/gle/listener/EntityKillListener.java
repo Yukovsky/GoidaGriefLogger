@@ -41,12 +41,16 @@ public final class EntityKillListener {
         if (inList(com.gle.GLEConfig.modBlacklist.get(), entityKey.getNamespace())) return;
 
         BlockPos pos = victim.blockPosition();
+        // Снимок нужен только если сущность чем-то отличается от обычной особи своего типа
+        // (имя, экипировка, атрибуты). Для рядового моба здесь будет null и в БД не ляжет ничего.
+        byte[] nbt = com.gle.core.EntityNbt.capture(victim, com.gle.GLEConfig.maxNbtSizeKb.get());
         GLStorage.get().blocks().insertEntityKill(
                 System.currentTimeMillis(),
                 killer.getUUID().toString(),
                 dimension,
                 pos.getX(), pos.getY(), pos.getZ(),
-                entityName);
+                entityName,
+                nbt);
     }
 
     private static boolean inList(java.util.List<? extends String> list, String value) {

@@ -17,6 +17,7 @@ public final class GLStorage {
     private final GLDatabase database;
     private final WriteQueue writeQueue;
     private final IdCache idCache;
+    private final NbtStore nbtStore;
     private final BlockLogDao blockDao;
     private final ContainerLogDao containerDao;
     private final GleEventsDao eventsDao;
@@ -37,9 +38,10 @@ public final class GLStorage {
         // Кэши id справочников разделяются всеми DAO: справочник у всех общий, и попадание в кэш
         // у одного DAO избавляет от вставки/подзапроса у всех остальных (docs/06 §6, Фаза 2).
         this.idCache = new IdCache(database.isMysql());
+        this.nbtStore = new NbtStore(database.isMysql());
         // При откате пакета сбрасываем кэш id — откат мог отменить вставки в справочники.
-        writeQueue.setOnRollback(idCache::clear);
-        this.blockDao = new BlockLogDao(database, writeQueue, idCache);
+        writeQueue.setOnRollback(() -> { idCache.clear(); nbtStore.clear(); });
+        this.blockDao = new BlockLogDao(database, writeQueue, idCache, nbtStore);
         this.containerDao = new ContainerLogDao(database, writeQueue, idCache);
         this.eventsDao = new GleEventsDao(database, writeQueue, idCache);
         this.sessionDao = new SessionDao(database, writeQueue, idCache);

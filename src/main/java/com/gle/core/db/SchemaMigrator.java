@@ -158,6 +158,8 @@ public final class SchemaMigrator {
         addColumnIfMissing(c, "blocks", "nbt_truncated", "INTEGER DEFAULT 0");
         // Пометка отката (как в CoreProtect): 1 = строка откатана и в lookup показывается зачёркнутой.
         addColumnIfMissing(c, "blocks", "rolled_back", "INTEGER DEFAULT 0");
+        // Ссылка на дедуплицированный снимок (gle_nbt). Для строк убийства — снимок сущности.
+        addColumnIfMissing(c, "blocks", "nbt_id", "INTEGER");
         addColumnIfMissing(c, "containers", "rolled_back", "INTEGER DEFAULT 0");
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ")
                 + "idx_blocks_source ON blocks(source_type)");
@@ -232,6 +234,11 @@ public final class SchemaMigrator {
                 "x " + i + ", y " + i + ", z " + i + ", nbt " + blob + ")");
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ")
                 + "idx_gle_nbt_pos ON gle_block_nbt(level, x, y, z, time)");
+
+        // Снимки NBT, адресуемые содержимым: одинаковые лежат один раз, события ссылаются по id.
+        exec(c, "CREATE TABLE IF NOT EXISTS gle_nbt (" +
+                "id " + pk + ", hash " + (db.isMysql() ? "CHAR(64)" : "TEXT") + " NOT NULL UNIQUE, " +
+                "size " + i + " NOT NULL, data " + blob + " NOT NULL)");
 
         exec(c, "CREATE TABLE IF NOT EXISTS gle_player_deaths (" +
                 "id " + pk + ", time " + big + " NOT NULL, player_uuid " + txt + " NOT NULL, " +
