@@ -33,11 +33,12 @@ A fork and full absorption of [GriefLogger](https://github.com/daqem/GriefLogger
 | Blocks | Player placement, breaking, and interaction |
 | Items | Pickup, drop, throw, craft, smelt, consume, durability break |
 | Containers | Access and full transactions — every slot, both directions, including furnaces and brewing stands |
+| Carried containers | Backpacks and bags opened from the inventory, which have no position in the world |
 | Explosions | TNT, Creeper, Wither, End Crystal, and mod sources |
 | Pistons | Block push and pull |
 | Entities | Mob kills by player, with a snapshot of anything that made the mob unusual |
 | Decorations | Item frames, paintings, signs |
-| Deaths | Player inventory snapshot on death |
+| Deaths | Player inventory snapshot on death, including Curios accessories |
 | Sessions | Join and leave |
 | Commands | Chat messages and commands |
 | Mod blocks | Changes from automation mods, fake players, mob griefing |
@@ -79,6 +80,9 @@ the GUI open, and nothing can be hidden in an unusual slot.
 - [Create](https://modrinth.com/mod/create) — contraption block changes, mechanical arm and launcher item tracking
 - [Tom's Simple Storage](https://modrinth.com/mod/toms-storage) — terminal transactions attributed to the correct player
 - [Sophisticated Backpacks](https://modrinth.com/mod/sophisticated-backpacks) — backpack item tracking
+- [Curios](https://modrinth.com/mod/curios) — accessory slots included in the death snapshot
+
+Other backpack mods need no integration: carried containers are covered generically.
 
 ---
 
@@ -132,11 +136,13 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
   enableItemPickup = true
   enableContainerAccess = true
   enableContainerTransactions = true
+  enableCarriedContainers = true   # backpacks and bags opened from the inventory
   enableBlockActivation = true
   enableModBlockChanges = true
   enableEntityGriefing = true
   enableGravityBlocks = true
-  # off by default: enableSigns, enableItemFrames, enablePlayerDeath,
+  # off by default — enable enablePlayerDeath if you want death snapshots (Curios included):
+  # enableSigns, enableItemFrames, enablePlayerDeath,
   # enableFireSpread, enableLavaFlow, enableWaterFlow, enableSculk, enableIceSnow
 
 [performance]
