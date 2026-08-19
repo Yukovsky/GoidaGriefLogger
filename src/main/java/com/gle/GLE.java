@@ -8,6 +8,7 @@ import com.gle.core.db.GLStorage;
 import com.gle.integration.IntegrationRegistry;
 import com.gle.integration.backpacks.BackpacksIntegration;
 import com.gle.integration.create.CreateIntegration;
+import com.gle.integration.sable.SableIntegration;
 import com.gle.integration.toms.TomsIntegration;
 import com.gle.listener.CarriedContainerListener;
 import com.gle.listener.ChatCommandListener;
@@ -100,7 +101,8 @@ public final class GLE {
         // Подключаемые модули интеграций (активируются по наличию modid на старте сервера)
         integrations.register(new CreateIntegration())
                     .register(new TomsIntegration())
-                    .register(new BackpacksIntegration());
+                    .register(new BackpacksIntegration())
+                    .register(new SableIntegration());
 
         LOGGER.info("GoidaGriefLogger загружен. Ожидание старта сервера для подключения к БД.");
     }

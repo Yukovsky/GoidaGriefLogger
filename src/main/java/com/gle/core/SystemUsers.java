@@ -27,6 +27,8 @@ public final class SystemUsers {
     public static final String TNT     = "[TNT]";
     public static final String CREEPER = "[CREEPER]";
     public static final String AUTO    = "[AUTO]";
+    /** Физические структуры: сборка, перемещение и разборка блоков движком физики. */
+    public static final String PHYSICS = "[PHYSICS]";
 
     /** name -> фиксированный UUID. Порядок сохранён для детерминированной миграции. */
     public static final Map<String, String> ALL = new LinkedHashMap<>();
@@ -43,6 +45,7 @@ public final class SystemUsers {
         ALL.put(TNT,     "00000000-0000-0000-0000-00000000000a");
         ALL.put(CREEPER, "00000000-0000-0000-0000-00000000000b");
         ALL.put(AUTO,    "00000000-0000-0000-0000-00000000000c");
+        ALL.put(PHYSICS, "00000000-0000-0000-0000-00000000000d");
     }
 
     /** uuid -> имя. Нужен, чтобы запись справочника {@code users} могла быть создана по одному uuid. */

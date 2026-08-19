@@ -1,0 +1,15 @@
+{
+  "required": false,
+  "minVersion": "0.8.5",
+  "package": "com.gle.integration.sable.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "goidagrieflogger.refmap.json",
+  "mixins": [
+    "SubLevelAssemblyHelperMixin",
+    "SimAssemblyHelperMixin"
+  ],
+  "client": [],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

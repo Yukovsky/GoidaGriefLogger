@@ -10,6 +10,11 @@ public final class SourceType {
     private SourceType() {}
 
     // Взрывы
+    /** Физические структуры Sable / Aeronautics / Simulated. */
+    public static final String SABLE_ASSEMBLY    = "sable:assembly";
+    public static final String SABLE_MOVE        = "sable:move";
+    public static final String SABLE_DISASSEMBLY = "sable:disassembly";
+
     public static final String TNT            = "tnt";
     public static final String CREEPER        = "creeper";
     public static final String BED            = "bed";

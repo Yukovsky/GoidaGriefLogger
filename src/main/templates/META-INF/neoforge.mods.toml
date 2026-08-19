@@ -23,6 +23,9 @@ config = "gle.create.mixins.json"
 [[mixins]]
 config = "gle.toms.mixins.json"
 
+[[mixins]]
+config = "gle.sable.mixins.json"
+
 # --- Зависимости ---
 
 # NeoForge

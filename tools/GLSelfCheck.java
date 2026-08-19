@@ -412,6 +412,17 @@ public final class GLSelfCheck {
         check("attribution: без игрока uuid пуст", system.playerUuid() == null);
         var owned = new com.gle.core.GriefContext.Attribution("create:contraption", "[CREATE]", "uuid-steve");
         check("attribution: игрок доносится до записи", "uuid-steve".equals(owned.playerUuid()));
+
+        // Системный пользователь физических структур обязан быть заведён, иначе записи о сборке
+        // и разборке некуда писать: userIdOrCreate возьмёт имя именно отсюда.
+        check("physics: системный пользователь [PHYSICS] объявлен",
+                com.gle.core.SystemUsers.uuidOf(com.gle.core.SystemUsers.PHYSICS) != null);
+        check("physics: uuid не конфликтует с остальными",
+                new java.util.HashSet<>(com.gle.core.SystemUsers.ALL.values()).size()
+                        == com.gle.core.SystemUsers.ALL.size());
+        check("physics: имя резолвится обратно по uuid",
+                com.gle.core.SystemUsers.PHYSICS.equals(com.gle.core.SystemUsers.nameOf(
+                        com.gle.core.SystemUsers.uuidOf(com.gle.core.SystemUsers.PHYSICS))));
     }
 
     private static int count(Connection c, String from) throws Exception {

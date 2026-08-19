@@ -66,6 +66,7 @@ public final class GLEConfig {
     // [integrations.create] / [integrations.toms] / [integrations.backpacks]
     public static final ModConfigSpec.BooleanValue enableCreateIntegration;
     public static final ModConfigSpec.BooleanValue enableTomsIntegration;
+    public static final ModConfigSpec.BooleanValue enableSableIntegration;
     public static final ModConfigSpec.BooleanValue enableBackpacksIntegration;
     // [integrations] universal item tracking (опционально, экспериментально)
     public static final ModConfigSpec.BooleanValue universalItemTracking;
@@ -171,6 +172,13 @@ public final class GLEConfig {
         b.push("toms");
         enableTomsIntegration = b.comment("Атрибутировать перемещения через терминалы Tom's Simple Storage реальному игроку",
                 "(иначе они попадут в историю только как [AUTO] через универсальный трекинг).")
+                .define("enabled", true);
+        b.pop();
+        b.push("sable");
+        enableSableIntegration = b.comment(
+                "Логировать сборку, перемещение и разборку физических структур Sable.",
+                "Покрывает также Create Aeronautics и Simulated — они идут через тот же класс Sable.",
+                "Без этого целая постройка, поднятая в физическую структуру, исчезает из лога бесследно.")
                 .define("enabled", true);
         b.pop();
         b.push("backpacks");
