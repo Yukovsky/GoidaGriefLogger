@@ -3,6 +3,7 @@ package com.gle.listener;
 import com.gle.GLEConfig;
 import com.gle.core.GLActions;
 import com.gle.core.GLMaterials;
+import com.gle.core.ContainerAccess;
 import com.gle.core.ItemData;
 import com.gle.core.MachineActivity;
 import com.gle.core.db.ContainerLogDao;
@@ -90,7 +91,7 @@ public final class ContainerTransactionListener {
         if (!pend.dim().equals(level.dimension().location().toString())) return;
         if (sp.blockPosition().distSqr(pend.pos()) > MAX_REACH_SQR) return;
 
-        IItemHandler handler = handlerAt(level, pend.pos());
+        IItemHandler handler = ContainerAccess.handlerAt(level, pend.pos());
         if (handler == null) return;
         OPEN.put(sp.getUUID(), new OpenSnapshot(pend.dim(), pend.pos(),
                 snapshot(handler, level.registryAccess())));
@@ -132,7 +133,7 @@ public final class ContainerTransactionListener {
      * терялась. Теперь считаем, что всё содержимое изъято.
      */
     private static void finishSnapshot(ServerLevel level, ServerPlayer sp, OpenSnapshot snap) {
-        IItemHandler handler = handlerAt(level, snap.pos());
+        IItemHandler handler = ContainerAccess.handlerAt(level, snap.pos());
         Map<String, ItemStack> after = handler == null
                 ? Map.of()
                 : snapshot(handler, level.registryAccess());
@@ -148,18 +149,9 @@ public final class ContainerTransactionListener {
     private static boolean isTrackable(ServerLevel level, BlockPos pos) {
         BlockEntity be = level.getBlockEntity(pos);
         if (be == null || be instanceof EnderChestBlockEntity) return false;
-        return handlerAt(level, pos) != null;
+        return ContainerAccess.handlerAt(level, pos) != null;
     }
 
-    private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
-        try {
-            // side=null: для сторонних контейнеров это даёт ПОЛНЫЙ инвентарь, а не вид с грани
-            // (SidedInvWrapper при null отдаёт getContainerSize и прямую нумерацию слотов).
-            return level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     /** Снимок: ключ (предмет+компоненты) -> агрегированный стек с суммарным количеством. */
     private static Map<String, ItemStack> snapshot(IItemHandler handler, RegistryAccess reg) {

@@ -46,7 +46,7 @@ public final class ItemRestorer {
         // Раньше здесь стоял только `instanceof Container`, а модовые вместилища (Create Item Vault,
         // Sophisticated Backpacks, Tom's Storage) Container НЕ реализуют — для них откат молча
         // возвращал false, то есть «откат контейнеров» для них просто не работал.
-        IItemHandler handler = handlerAt(level, pos);
+        IItemHandler handler = com.gle.core.ContainerAccess.handlerAt(level, pos);
         if (handler == null) return "нет контейнера на " + pos.toShortString();
 
         ItemStack stack = reconstruct(level, change);
@@ -62,21 +62,6 @@ public final class ItemRestorer {
         }
         return insert(level, pos, handler, stack) ? null
                 : "нет места для " + change.material() + " в контейнере на " + pos.toShortString();
-    }
-
-    /**
-     * Предметный хендлер на позиции: сначала capability (покрывает и ванильные контейнеры —
-     * NeoForge регистрирует ItemHandler и для них), затем — {@link Container} через обёртку.
-     */
-    @org.jetbrains.annotations.Nullable
-    private static IItemHandler handlerAt(ServerLevel level, BlockPos pos) {
-        try {
-            IItemHandler cap = level.getCapability(Capabilities.ItemHandler.BLOCK, pos, null);
-            if (cap != null) return cap;
-        } catch (Exception ignored) {
-            // капability может бросить у кривых модовых блоков — падаем на Container ниже
-        }
-        return level.getBlockEntity(pos) instanceof Container c ? new InvWrapper(c) : null;
     }
 
     private static ItemStack reconstruct(ServerLevel level, RollbackData.ItemChange change) {
