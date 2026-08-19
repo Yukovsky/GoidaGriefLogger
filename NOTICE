@@ -15,4 +15,4 @@ from GriefLogger carry a prominent notice of modification per Apache-2.0 §4(b).
 Database schema (tables users/levels/materials/entities/blocks/containers/items/
 sessions/usernames/chats/commands and integer action codes) originates from
 GriefLogger and is reproduced here so that GoidaGriefLogger is the sole owner
-and writer of that schema (single-writer architecture, see docs/06).
+and writer of that schema (single-writer architecture, see STATUS.md).

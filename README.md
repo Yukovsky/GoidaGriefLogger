@@ -31,11 +31,11 @@ A fork and full absorption of [GriefLogger](https://github.com/daqem/GriefLogger
 | Category | What is logged |
 |---|---|
 | Blocks | Player placement, breaking, and interaction |
-| Items | Pickup, drop, throw |
-| Containers | Chest opens, hopper transfers (configurable) |
+| Items | Pickup, drop, throw, craft, smelt, consume, durability break |
+| Containers | Access and full transactions — every slot, both directions, including furnaces and brewing stands |
 | Explosions | TNT, Creeper, Wither, End Crystal, and mod sources |
 | Pistons | Block push and pull |
-| Entities | Mob kills by player |
+| Entities | Mob kills by player, with a snapshot of anything that made the mob unusual |
 | Decorations | Item frames, paintings, signs |
 | Deaths | Player inventory snapshot on death |
 | Sessions | Join and leave |
@@ -43,22 +43,36 @@ A fork and full absorption of [GriefLogger](https://github.com/daqem/GriefLogger
 | Mod blocks | Changes from automation mods, fake players, mob griefing |
 | Gravity | Sand, gravel, and other falling blocks |
 
+Machines that run on their own — furnaces, blast furnaces, smokers, brewing stands — report what
+they consume and produce themselves, so their work is never attributed to whoever happened to have
+the GUI open, and nothing can be hidden in an unusual slot.
+
 ### Rollback System
 
-- **`/gl rollback`** — roll back changes by time, player, radius, action, or block type
-- **`/gl restore`** — restore previously rolled-back changes
-- **`/gl preview`** — preview what a rollback will affect before running it
-- Async batch processing — all operations run off the main thread, no TPS impact
+- **`/gl rollback`** — return an area to its state at a chosen moment: every logged action in the
+  window is undone, newest first, so the oldest record decides the final state
+- **`/gl restore`** — the exact inverse; replays the same actions in chronological order
+- **`/gl preview`** — see the result before applying it, with the affected area outlined in particles
+- **`/gl preview accept`** — apply what the preview shows, reusing the same filter
+- Killed entities come back with their saved data — custom names, equipment, modified attributes
+- Rows already rolled back are excluded from a second rollback, so repeating a command cannot
+  duplicate or destroy items
+- Async batch processing — all queries and writes run off the main thread, no TPS impact
 
 ### Inspect & Lookup
 
 - **`/gl inspect`** — toggle inspect mode; click any block to see its full history
 - **`/gl lookup`** — query the log database with filters and pagination
+- Rolled-back entries are shown struck through and dimmed, recognisable at a glance
 
 ### Database
 
 - **SQLite** — default, zero configuration, bundled in the jar
 - **MySQL / MariaDB** — for high-volume or multi-instance setups, also bundled
+- Writes are batched per table and committed together — one prepared statement and one round trip
+  per table instead of one per row
+- NBT snapshots are content-addressed: identical snapshots are stored once, and a snapshot that
+  says nothing beyond the default is not stored at all
 
 ### Integrations *(auto-detected, no extra setup)*
 
@@ -78,6 +92,10 @@ A fork and full absorption of [GriefLogger](https://github.com/daqem/GriefLogger
 | Side | Server only |
 
 > **Incompatibility:** GoidaGriefLogger cannot run alongside the original GriefLogger mod. Remove `grieflogger-*.jar` from your server before installing this mod — both claim `/gl` and write to the same database schema.
+
+> **Upgrading from 2.x:** version 3.0.0 added a primary key to the `blocks` and `containers`
+> tables, which a 2.x database does not have. Start from a clean database — the migration reports
+> the problem at `ERROR` level if it finds the old shape. Upgrades within 3.x need no action.
 
 ---
 
@@ -110,27 +128,31 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
 [logging]
   enableExplosions = true
   enablePistons = true
-  enableHoppers = false         # generates a lot of events; off by default
-  enableModBlockChanges = true
-  enableEntityGriefing = true
-  enableGravityBlocks = true
+  enableHoppers = false         # many events; goes through the capability hook, logged as [AUTO]
   enableItemPickup = true
   enableContainerAccess = true
   enableContainerTransactions = true
   enableBlockActivation = true
-  # Phase 2/3 options (off by default): signs, itemFrames, playerDeath,
-  # fireSpread, lavaFlow, waterFlow, sculk, iceSnow
+  enableModBlockChanges = true
+  enableEntityGriefing = true
+  enableGravityBlocks = true
+  # off by default: enableSigns, enableItemFrames, enablePlayerDeath,
+  # enableFireSpread, enableLavaFlow, enableWaterFlow, enableSculk, enableIceSnow
 
 [performance]
-  asyncQueueSize = 10000
   maxExplosionBlocks = 500
+  asyncQueueSize = 10000
   deduplicationWindowMs = 100   # ms window for deduplicating repeated events
   maxNbtSizeKb = 512
+  environmentalRateLimitPerBlockSec = 5
 
 [rollback]
+  restoreEntities = true        # bring killed entities back; costs almost nothing in storage
   batchSize = 200               # blocks processed per tick
+  progressIntervalTicks = 20
   maxRestoreAgeDays = 7
   maxPreviewDurationSec = 60
+  previewAutoCancelBlocks = 50  # cancel the preview once the player walks this far
 
 [integrations]
   universalItemTracking = false  # experimental: track all IItemHandler movements
@@ -171,12 +193,19 @@ Permission node: `goidagrieflogger.command` (default: OP level 2).
 ```
 /gl lookup u:Steve r:10 t:1h
 /gl lookup u:Steve t:2h a:break b:minecraft:diamond_ore
+/gl page 2
+
+/gl preview u:Griefer t:2h r:50     # show the result, outline the area
+/gl preview accept                   # apply it with the same filter
+/gl preview cancel                   # drop it
 
 /gl rollback u:Griefer t:2h r:50
-/gl preview  u:Griefer t:2h r:50
-/gl restore  u:Griefer t:2h r:50
+/gl restore  u:Griefer t:2h r:50     # the inverse of the rollback above
 
-/gl inspect
+/gl inspect                          # toggle inspect mode, then click a block
+/gl abort                            # stop your running rollback or restore
+/gl status
+/gl help
 ```
 
 ---
@@ -190,6 +219,17 @@ cd GoidaGriefLogger
 ```
 
 Output jar: `build/libs/goidagrieflogger-<version>.jar`. Requires Java 21.
+
+### Self-check
+
+```bash
+sh tools/selfcheck.sh
+```
+
+Brings up the real schema in a temporary SQLite database and runs the real queries and writes
+against it. Covers the parts that fail silently rather than loudly: the `rolled_back` predicate,
+parameter binding order, apply order for rollback versus restore, batched writes, queue drain on
+shutdown, NBT deduplication, and how rolled-back rows are rendered.
 
 ---
 
