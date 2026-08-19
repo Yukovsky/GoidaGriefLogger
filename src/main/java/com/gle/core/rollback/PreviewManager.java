@@ -80,13 +80,15 @@ public final class PreviewManager {
         if (blocks.isEmpty()) { out.accept(Component.literal("§7[Preview] Нет изменений по фильтру.")); return; }
         ServerLevel level = (ServerLevel) player.level();
 
-        // Reverse-chrono: первая встреченная позиция определяет итоговое состояние.
+        // Итог позиции задаёт САМАЯ СТАРАЯ запись: откат применяет обратные операции от новых
+        // к старым, и последней применяется именно она. Раньше здесь бралась самая новая, из-за
+        // чего превью показывало промежуточное состояние — например блок, поставленный в середине
+        // окна, хотя на начало окна там было пусто.
         Map<BlockPos, BlockState> preview = new LinkedHashMap<>();
-        for (RollbackData.BlockChange ch : blocks) {
-            BlockPos pos = new BlockPos(ch.x(), ch.y(), ch.z());
-            if (preview.containsKey(pos)) continue;
-            BlockState state = BlockRestorer.computeReverseState(level, ch);
-            if (state != null) preview.put(pos, state);
+        for (Map.Entry<BlockPos, RollbackData.BlockChange> e
+                : RollbackData.finalChangePerPosition(blocks).entrySet()) {
+            BlockState state = BlockRestorer.computeReverseState(level, e.getValue());
+            if (state != null) preview.put(e.getKey(), state);
         }
 
         Map<BlockPos, BlockState> real = new HashMap<>();

@@ -86,6 +86,7 @@ public final class GLSelfCheck {
         checkMaterialNames();
         checkRolledBackStyling();
         checkMachineActivity();
+        checkRollbackSemantics();
 
         database.close();
         if (failures > 0) {
@@ -234,6 +235,38 @@ public final class GLSelfCheck {
                 acc2.get("diamond") == null);
 
         check("machine: stop без start возвращает пустое", com.gle.core.MachineActivity.stop(other).isEmpty());
+    }
+
+    /**
+     * Откат возвращает территорию к снимку на момент timeFrom. Значит итог позиции задаёт
+     * САМАЯ СТАРАЯ запись окна: обратные операции применяются от новых к старым, и она
+     * применяется последней. Превью обязано показывать тот же итог, иначе оно врёт.
+     */
+    private static void checkRollbackSemantics() {
+        // Сценарий из жизни: 12 минут назад сломали камень, 7 минут назад поставили землю.
+        // Полный откат окна обязан вернуть КАМЕНЬ, а не воздух и не землю.
+        var newestFirst = List.of(
+                change(700L, "dirt", 1, 5, 64, 5),    // PLACE, новее
+                change(300L, "stone", 0, 5, 64, 5));  // BREAK, старее
+        var finals = com.gle.core.rollback.RollbackData.finalChangePerPosition(newestFirst);
+
+        check("rollback: на позицию остаётся одна итоговая запись", finals.size() == 1);
+        var decisive = finals.values().iterator().next();
+        check("rollback: итог задаёт самая старая запись (ожидали stone/BREAK, получили "
+                + decisive.material() + "/" + decisive.action() + ")",
+                "stone".equals(decisive.material()) && decisive.action() == 0);
+
+        // Разные позиции не должны схлопываться.
+        var two = com.gle.core.rollback.RollbackData.finalChangePerPosition(List.of(
+                change(700L, "dirt", 1, 5, 64, 5),
+                change(600L, "sand", 1, 6, 64, 5)));
+        check("rollback: разные позиции учитываются раздельно", two.size() == 2);
+    }
+
+    private static com.gle.core.rollback.RollbackData.BlockChange change(
+            long time, String material, int action, int x, int y, int z) {
+        return new com.gle.core.rollback.RollbackData.BlockChange(
+                time, time, material, action, x, y, z, null, null, null);
     }
 
     private static int count(Connection c, String from) throws Exception {

@@ -10,6 +10,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -215,6 +216,30 @@ public final class RollbackData {
             sb.append(values.get(k).intValue());
         }
         return sb.toString();
+    }
+
+    // --- семантика отката ------------------------------------------------------
+
+    /**
+     * Какая запись определяет ИТОГОВОЕ состояние каждой позиции после полного отката.
+     * <p>
+     * Откат возвращает территорию к снимку на момент {@code timeFrom}: он применяет обратные
+     * операции от новых записей к старым, поэтому последней применяется САМАЯ СТАРАЯ запись —
+     * она и задаёт результат. Промежуточные состояния значения не имеют.
+     * <p>
+     * Превью раньше брало самую НОВУЮ запись на позицию и показывало состояние, которого после
+     * отката не будет: например блок, поставленный в середине окна, хотя на начало окна там
+     * было пусто.
+     *
+     * @param newestFirst записи в порядке выборки — от новых к старым
+     */
+    public static Map<BlockPos, BlockChange> finalChangePerPosition(List<BlockChange> newestFirst) {
+        Map<BlockPos, BlockChange> out = new LinkedHashMap<>();
+        for (BlockChange ch : newestFirst) {
+            // Кладём без проверки: каждая следующая запись старее, последняя запись победит.
+            out.put(new BlockPos(ch.x(), ch.y(), ch.z()), ch);
+        }
+        return out;
     }
 
     // --- пометка rolled_back (для зачёркивания в lookup, как в CoreProtect) ---
