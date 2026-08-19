@@ -81,6 +81,8 @@ the GUI open, and nothing can be hidden in an unusual slot.
 - [Tom's Simple Storage](https://modrinth.com/mod/toms-storage) — terminal transactions attributed to the correct player
 - [Sophisticated Backpacks](https://modrinth.com/mod/sophisticated-backpacks) — backpack item tracking
 - [Curios](https://modrinth.com/mod/curios) — accessory slots included in the death snapshot
+- [Sable](https://modrinth.com/mod/sable) — assembly, movement and disassembly of physics structures;
+  the same hook covers Create Aeronautics and Simulated, which route through Sable
 
 Other backpack mods need no integration: carried containers are covered generically.
 
@@ -167,6 +169,8 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
   [integrations.toms]
     enabled = true
   [integrations.backpacks]
+    enabled = true
+  [integrations.sable]
     enabled = true
 
 [blacklists]
