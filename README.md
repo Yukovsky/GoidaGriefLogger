@@ -92,7 +92,8 @@ positive is worse than a warning.
 
 ### Integrations *(auto-detected, no extra setup)*
 
-- [Create](https://modrinth.com/mod/create) — contraption block changes, mechanical arm and launcher item tracking
+- [Create](https://modrinth.com/mod/create) — contraption and schematicannon block changes, mechanical arm
+  and launcher item tracking; contraptions are attributed to the controlling player where Create knows one
 - [Tom's Simple Storage](https://modrinth.com/mod/toms-storage) — terminal transactions attributed to the correct player
 - [Sophisticated Backpacks](https://modrinth.com/mod/sophisticated-backpacks) — backpack item tracking
 - [Curios](https://modrinth.com/mod/curios) — accessory slots included in the death snapshot
@@ -163,7 +164,8 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
   # enableFireSpread, enableLavaFlow, enableWaterFlow, enableSculk, enableIceSnow
 
 [performance]
-  maxExplosionBlocks = 500
+  maxExplosionBlocks = 10000    # anything above this is NOT logged and cannot be rolled back;
+                                # a cannon shell or a TNT array easily exceeds a few hundred
   asyncQueueSize = 10000
   deduplicationWindowMs = 100   # ms window for deduplicating repeated events
   maxNbtSizeKb = 512
