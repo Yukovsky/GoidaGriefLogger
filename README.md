@@ -200,7 +200,37 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
 
 ## Commands
 
-Permission node: `goidagrieflogger.command` (default: OP level 2).
+Every subcommand is listed below. Access differs — one of them is deliberately out of reach
+from inside the game.
+
+| Command | What it does | Access |
+|---|---|---|
+| `/gl lookup <filters>` | Query the log; rolled-back rows appear struck through | OP 2 |
+| `/gl page <n>` | Another page of the last lookup | OP 2 |
+| `/gl inspect` | Toggle inspect mode, then click a block for its history | OP 2 |
+| `/gl rollback <filters>` | Return the area to its state at the chosen moment | OP 2 |
+| `/gl restore <filters>` | The inverse of a rollback — replay the same actions | OP 2 |
+| `/gl preview <filters>` | Show the result without changing anything, area outlined in particles | OP 2 |
+| `/gl preview accept` | Apply what the preview shows, reusing its filter | OP 2 |
+| `/gl preview cancel` | Drop the preview | OP 2 |
+| `/gl abort` | Stop your running rollback or restore | OP 2 |
+| `/gl status` | Queue depth, running jobs, and whether the world matches the database | OP 2 |
+| `/gl help` | Commands and filters in game | OP 2 |
+| **`gl wipe`** | **Wipe the whole database and pin it to the current world** | **Console / RCON only** |
+| **`gl wipe confirm`** | **Confirm the wipe within 30 seconds** | **Console / RCON only** |
+
+Permission node for the in-game commands: `goidagrieflogger.command` (default: OP level 2),
+resolvable through FTB Ranks if it is installed.
+
+> ### `gl wipe` is not an in-game command
+>
+> It runs only from the server console or RCON. An operator inside the game cannot run it, and
+> neither can a command block — a redstone-triggered wipe would be an excellent way to cover
+> one's tracks. The log exists to hold operators accountable too, so the ability to erase it
+> from inside the game would defeat the point.
+>
+> Note there is no leading slash: you type `gl wipe` at the server console.
+> It is needed after a map reset — see [World Safety](#world-safety).
 
 ### Parameters
 
@@ -231,9 +261,13 @@ Permission node: `goidagrieflogger.command` (default: OP level 2).
 /gl abort                            # stop your running rollback or restore
 /gl status
 /gl help
+```
 
-gl wipe                              # console only: wipe the database after a map reset
-gl wipe confirm
+At the server console (no slash, not available in game):
+
+```
+gl wipe                              # reports what will be lost
+gl wipe confirm                      # within 30 seconds — wipes and re-pins to this world
 ```
 
 ---

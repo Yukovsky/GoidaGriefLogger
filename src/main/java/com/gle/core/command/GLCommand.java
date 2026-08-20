@@ -392,6 +392,12 @@ public final class GLCommand {
         s.sendSystemMessage(Component.literal("§e/gl inspect§7 — режим инспектора: клик по блоку → история места (повторно — выключить)"));
         s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview accept§7 — применить; §e/gl preview cancel"));
         s.sendSystemMessage(Component.literal("§e/gl abort§7 — стоп активного задания; §e/gl status"));
+        // Показываем и консольную команду: иначе о ней не узнать, а после сброса карты она нужна.
+        // Отдельной строкой с пометкой — из игры она недоступна намеренно.
+        s.sendSystemMessage(Component.literal(
+                "§8── §7только из консоли сервера (не из игры): §fgl wipe§7 — очистить базу логов"));
+        s.sendSystemMessage(Component.literal(
+                "§8   нужна после сброса карты; выполняется в два шага: §fgl wipe§8 → §fgl wipe confirm"));
         s.sendSystemMessage(Component.literal("§6Фильтры §7(можно полные и краткие имена):"));
         s.sendSystemMessage(Component.literal("§7  time:§f|t:§f<время>§7 — 1h, 30m, 1d, 1d12h §o(обязательно)"));
         s.sendSystemMessage(Component.literal("§7  radius:§f|r:§f<радиус|global>§7 — блоков вокруг вас или весь мир §o(обязательно)"));
