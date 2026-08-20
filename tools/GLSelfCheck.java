@@ -134,6 +134,13 @@ public final class GLSelfCheck {
                     2000L + i, "uuid-writer", "minecraft:overworld", i, 64, 0,
                     "stone", null, 1, 1));
         }
+        // Взрыв: строка пишется на системного [EXPLOSION], а виновник — отдельной колонкой.
+        // Без неё в подсказке некого показать, и вопрос «кто взорвал» остаётся без ответа.
+        blocks.insert(new BlockLogDao.BlockEntry(
+                3000L, com.gle.core.SystemUsers.uuidOf(com.gle.core.SystemUsers.EXPLOSION),
+                "minecraft:overworld", 50, 64, 50, "stone", 0,
+                "tnt", "uuid-writer", null, null, false));
+
         // Убийство: type ссылается на entities, а не materials — отдельный SQL, отдельный пакет.
         blocks.insertEntityKill(9000L, "uuid-writer", "minecraft:overworld", 5, 64, 5, "minecraft:zombie", null);
         // Именованный моб: снимок отличается от обычной особи и обязан сохраниться.
@@ -144,8 +151,8 @@ public final class GLSelfCheck {
         queue.stop();
 
         Connection c = db.connection();
-        check("write: все строки blocks записаны (ожидали " + (N + 2) + ", в БД " + count(c, "blocks") + ")",
-                count(c, "blocks") == N + 2);
+        check("write: все строки blocks записаны (ожидали " + (N + 3) + ", в БД " + count(c, "blocks") + ")",
+                count(c, "blocks") == N + 3);
         check("write: все строки containers записаны (ожидали " + N + ", в БД " + count(c, "containers") + ")",
                 count(c, "containers") == N);
         check("write: сессия записана", count(c, "sessions") == 1);
@@ -158,6 +165,23 @@ public final class GLSelfCheck {
         check("write: имя пользователя починено входом (Writer, а не плейсхолдер)",
                 count(c, "users WHERE uuid = 'uuid-writer' AND name = 'Writer'") == 1);
         // Строка убийства обязана ссылаться на entities, а не на materials.
+        check("explosion: строка записана на системного [EXPLOSION]",
+                count(c, "blocks b JOIN users u ON b.user = u.id "
+                        + "WHERE u.name = '[EXPLOSION]' AND b.source_type = 'tnt'") == 1);
+        // Ключевая цепочка: uuid виновника обязан резолвиться в имя тем же join, что делает lookup.
+        // Читаемость источника: сырой токен ни о чём не говорит разбирающему инцидент.
+        check("explosion: ванильный источник назван по-человечески",
+                "динамит".equals(com.gle.core.command.LookupService.sourceLabel("tnt")));
+        check("explosion: модовый источник разобран на мод и снаряд",
+                com.gle.core.command.LookupService.sourceLabel("explosion:createbigcannons:shell")
+                        .contains("createbigcannons"));
+        check("explosion: неизвестный токен не теряется",
+                "какой-то:токен".equals(com.gle.core.command.LookupService.sourceLabel("какой-то:токен")));
+
+        check("explosion: виновник резолвится в имя для подсказки",
+                count(c, "blocks b JOIN users su ON b.source_player_uuid = su.uuid "
+                        + "WHERE b.source_type = 'tnt' AND su.name = 'Writer'") == 1);
+
         check("write: убийство записано с id из entities",
                 count(c, "blocks b JOIN entities e ON b.type = e.id WHERE b.action = 3 "
                         + "AND e.name = 'minecraft:zombie'") == 1);

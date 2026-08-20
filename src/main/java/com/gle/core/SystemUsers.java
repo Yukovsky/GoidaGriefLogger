@@ -29,6 +29,8 @@ public final class SystemUsers {
     public static final String AUTO    = "[AUTO]";
     /** Физические структуры: сборка, перемещение и разборка блоков движком физики. */
     public static final String PHYSICS = "[PHYSICS]";
+    /** Любой взрыв. Что именно взорвалось — в source_type, кто устроил — в source_player_uuid. */
+    public static final String EXPLOSION = "[EXPLOSION]";
 
     /** name -> фиксированный UUID. Порядок сохранён для детерминированной миграции. */
     public static final Map<String, String> ALL = new LinkedHashMap<>();
@@ -46,6 +48,7 @@ public final class SystemUsers {
         ALL.put(CREEPER, "00000000-0000-0000-0000-00000000000b");
         ALL.put(AUTO,    "00000000-0000-0000-0000-00000000000c");
         ALL.put(PHYSICS, "00000000-0000-0000-0000-00000000000d");
+        ALL.put(EXPLOSION, "00000000-0000-0000-0000-00000000000e");
     }
 
     /** uuid -> имя. Нужен, чтобы запись справочника {@code users} могла быть создана по одному uuid. */

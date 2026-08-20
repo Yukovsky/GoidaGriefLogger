@@ -138,7 +138,11 @@ public final class GLEConfig {
         b.pop();
 
         b.comment("Производительность").push("performance");
-        maxExplosionBlocks   = b.comment("Макс. блоков на один взрыв").defineInRange("maxExplosionBlocks", 500, 1, 100_000);
+        maxExplosionBlocks   = b.comment(
+                "Макс. блоков, логируемых на ОДИН взрыв. Всё сверх лимита не попадёт в лог",
+                "и не может быть откачено, поэтому занижать опасно: крупный заряд или снаряд",
+                "пушки легко перекрывает несколько сотен блоков.")
+                .defineInRange("maxExplosionBlocks", 10_000, 1, 1_000_000);
         asyncQueueSize       = b.comment("Размер очереди записи до throttling").defineInRange("asyncQueueSize", 10_000, 256, 1_000_000);
         deduplicationWindowMs= b.comment("Окно дедупликации событий (мс)").defineInRange("deduplicationWindowMs", 100, 0, 10_000);
         maxNbtSizeKb         = b.comment("Макс. размер NBT BlockEntity для сохранения (КБ)").defineInRange("maxNbtSizeKb", 512, 0, 16_384);

@@ -89,6 +89,8 @@ public final class GLE {
 
         // Не-игровые источники
         NeoForge.EVENT_BUS.register(new ExplosionListener());
+        // Запоминает использование кровати/якоря: у их взрыва нет сущности-источника.
+        NeoForge.EVENT_BUS.register(new com.gle.listener.BlastPrimingTracker());
         NeoForge.EVENT_BUS.register(new PistonListener());
         NeoForge.EVENT_BUS.register(new ModBlockListener());
         NeoForge.EVENT_BUS.register(new PlayerDeathListener());

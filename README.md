@@ -34,7 +34,7 @@ A fork and full absorption of [GriefLogger](https://github.com/daqem/GriefLogger
 | Items | Pickup, drop, throw, craft, smelt, consume, durability break |
 | Containers | Access and full transactions — every slot, both directions, including furnaces and brewing stands |
 | Carried containers | Backpacks and bags opened from the inventory, which have no position in the world |
-| Explosions | TNT, Creeper, Wither, End Crystal, and mod sources |
+| Explosions | TNT, creepers, beds and respawn anchors, cannons and other mod sources; hover shows who set it off and with what |
 | Pistons | Block push and pull |
 | Entities | Mob kills by player, with a snapshot of anything that made the mob unusual |
 | Decorations | Item frames, paintings, signs |

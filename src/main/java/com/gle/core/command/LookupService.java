@@ -47,7 +47,12 @@ public final class LookupService {
 
     private record Row(long time, String user, String actionText, String material,
                        int x, int y, int z, boolean rolledBack, int amount, String source,
-                       String category) {}
+                       String category, @org.jetbrains.annotations.Nullable String causedBy) {
+        Row(long time, String user, String actionText, String material,
+            int x, int y, int z, boolean rolledBack, int amount, String source, String category) {
+            this(time, user, actionText, material, x, y, z, rolledBack, amount, source, category, null);
+        }
+    }
 
     public static void run(net.minecraft.server.MinecraftServer server, RollbackFilter f, ServerPlayer player) {
         if (!GLStorage.isReady()) { player.sendSystemMessage(Component.literal("§cХранилище недоступно.")); return; }
@@ -162,7 +167,10 @@ public final class LookupService {
                 + "\n§7Действие: §f" + stripColors(r.actionText())
                 + "\n§7Объект: §f" + mat + (r.amount() > 0 ? " x" + r.amount() : "")
                 + "\n§7Координаты: §f" + r.x() + ", " + r.y() + ", " + r.z()
-                + (r.source() != null ? "\n§7Источник: §f" + r.source() : "")
+                + (r.source() != null ? "\n§7Источник: §f" + sourceLabel(r.source())
+                        + " §8(" + r.source() + ")" : "")
+                // Для взрывов автор строки системный, поэтому реальный виновник — только здесь.
+                + (r.causedBy() != null ? "\n§7Устроил: §f" + r.causedBy() : "")
                 + (r.rolledBack() ? "\n§cОткатано" : "")
                 + "\n§8Клик — телепорт";
         final MutableComponent fLine = line;
@@ -179,8 +187,12 @@ public final class LookupService {
         // ссылается на entities.id, а НЕ на materials.id (см. BlockLogDao.insertEntityKill).
         // Безусловный join на materials давал случайное имя предмета вместо имени моба.
         StringBuilder sql = new StringBuilder(
-                "SELECT b.time, u.name, b.action, " + NAME_COL + ", b.x, b.y, b.z, b.rolled_back, b.source_type FROM blocks b "
+                "SELECT b.time, u.name, b.action, " + NAME_COL + ", b.x, b.y, b.z, b.rolled_back, b.source_type, "
+                // Кто устроил взрыв: строка пишется на системного [EXPLOSION], а реальный
+                // инициатор лежит отдельной колонкой — показываем его при наведении.
+                + "su.name FROM blocks b "
                 + "INNER JOIN levels l ON b.level=l.id LEFT JOIN users u ON b.user=u.id "
+                + "LEFT JOIN users su ON b.source_player_uuid = su.uuid "
                 + "LEFT JOIN materials m ON b.type=m.id AND b.action <> " + GLActions.KILL_ENTITY + " "
                 + "LEFT JOIN entities e ON b.type=e.id AND b.action = " + GLActions.KILL_ENTITY + " "
                 + "WHERE " + levelClause(f) + " AND b.time BETWEEN ? AND ? "
@@ -197,7 +209,8 @@ public final class LookupService {
                     int action = rs.getInt(3);
                     rows.add(new Row(rs.getLong(1), rs.getString(2), blockAction(action),
                             rs.getString(4), rs.getInt(5), rs.getInt(6), rs.getInt(7), rs.getInt(8) != 0, 0,
-                            rs.getString(9), com.gle.core.rollback.ActionFilters.blockCategory(action)));
+                            rs.getString(9), com.gle.core.rollback.ActionFilters.blockCategory(action),
+                            rs.getString(10)));
                 }
             }
         }
@@ -322,6 +335,51 @@ public final class LookupService {
                 }
             }
         }
+    }
+
+    /**
+     * Человекочитаемое имя источника. Сырой токен вроде {@code explosion:createbigcannons:shell}
+     * ни о чём не говорит тому, кто разбирает инцидент, поэтому рядом показывается понятное
+     * название — а сам токен остаётся в скобках, чтобы его можно было подставить в §fs:§7.
+     */
+    public static String sourceLabel(String source) {
+        return switch (source) {
+            case "tnt" -> "динамит";
+            case "creeper" -> "крипер";
+            case "bed" -> "кровать";
+            case "respawn_anchor" -> "якорь возрождения";
+            case "end_crystal" -> "кристалл Края";
+            case "ghast" -> "гаст";
+            case "wither_skull" -> "череп визера";
+            case "wither" -> "визер";
+            case "explosion" -> "взрыв, источник неизвестен";
+            case "gravity" -> "падающий блок";
+            case "piston" -> "поршень";
+            case "hopper" -> "воронка";
+            case "automation" -> "автоматика";
+            case "fire" -> "огонь";
+            case "lava" -> "лава";
+            case "water" -> "вода";
+            case "access" -> "открытие хранилища";
+            case "sable:assembly" -> "сборка физической структуры";
+            case "sable:move" -> "перемещение физической структуры";
+            case "sable:disassembly" -> "разборка физической структуры";
+            case "create:contraption" -> "контрапция Create";
+            case "create:schematicannon" -> "схематическая пушка Create";
+            case "create:deployer" -> "разместитель Create";
+            default -> {
+                // Модовый взрыв: source_type = "explosion:<модид>:<сущность>".
+                if (source.startsWith("explosion:")) {
+                    String id = source.substring("explosion:".length());
+                    int colon = id.indexOf(':');
+                    yield colon > 0
+                            ? "взрыв (" + id.substring(0, colon) + "): " + id.substring(colon + 1)
+                            : "взрыв: " + id;
+                }
+                if (source.startsWith("entity:")) yield "моб: " + source.substring("entity:".length());
+                yield source;
+            }
+        };
     }
 
     private static String frameAction(String a) {
