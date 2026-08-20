@@ -4,6 +4,7 @@ import com.gle.core.SystemUsers;
 import com.gle.permission.GLEPermissions;
 import com.gle.core.rollback.PreviewManager;
 import com.gle.core.rollback.RollbackFilter;
+import com.gle.core.db.GLStorage;
 import com.gle.core.rollback.RollbackManager;
 import com.gle.core.rollback.TimeParser;
 import com.mojang.brigadier.CommandDispatcher;
@@ -88,6 +89,11 @@ public final class GLCommand {
                 .then(Commands.literal("abort")
                         .requires(GLEPermissions::canAbort)
                         .executes(GLCommand::doAbort))
+                // Сброс базы намеренно НЕ под правом оператора: см. isConsole().
+                .then(Commands.literal("wipe")
+                        .requires(GLCommand::isConsole)
+                        .executes(GLCommand::doWipePrompt)
+                        .then(Commands.literal("confirm").executes(GLCommand::doWipeConfirm)))
                 .then(Commands.literal("status")
                         .requires(GLEPermissions::canStatus)
                         .executes(GLCommand::doStatus)));
@@ -236,6 +242,65 @@ public final class GLCommand {
         return 1;
     }
 
+    /**
+     * Доступна ли команда сброса. Только настоящая консоль сервера и RCON: игрок с правами
+     * оператора не должен мочь снести всю историю нарушений — именно от него она и защищает.
+     * Командные блоки тоже отсекаются: у них свой источник, и запуск такого редстоуном
+     * был бы отличным способом замести следы.
+     */
+    private static boolean isConsole(CommandSourceStack src) {
+        return src.source instanceof net.minecraft.server.MinecraftServer
+                || src.source instanceof net.minecraft.server.rcon.RconConsoleSource;
+    }
+
+    /** Пароль подтверждения живёт недолго: случайно повторить команду через час нельзя. */
+    private static volatile long wipeArmedAt = 0;
+    private static final long WIPE_CONFIRM_WINDOW_MS = 30_000;
+
+    private static int doWipePrompt(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        if (!GLStorage.isReady()) {
+            src.sendFailure(Component.literal("Хранилище недоступно."));
+            return 0;
+        }
+        wipeArmedAt = System.currentTimeMillis();
+        src.sendSystemMessage(Component.literal(
+                "ВНИМАНИЕ: будет удалена ВСЯ история логов и создана пустая база."));
+        var guard = com.gle.core.db.WorldGuard.state();
+        if (guard == com.gle.core.db.WorldGuard.State.MISMATCHED) {
+            src.sendSystemMessage(Component.literal(
+                    "Мир не совпадает с базой — логи относятся к прежней карте:"));
+            src.sendSystemMessage(Component.literal(
+                    "  в базе: " + com.gle.core.db.WorldGuard.expected()));
+            src.sendSystemMessage(Component.literal(
+                    "  сейчас: " + com.gle.core.db.WorldGuard.actual()));
+        } else {
+            src.sendSystemMessage(Component.literal(
+                    "Мир СОВПАДАЕТ с базой — сброс сейчас уничтожит актуальную историю."));
+        }
+        src.sendSystemMessage(Component.literal(
+                "Подтвердить: gl wipe confirm (в течение 30 секунд)."));
+        return 1;
+    }
+
+    private static int doWipeConfirm(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack src = ctx.getSource();
+        if (System.currentTimeMillis() - wipeArmedAt > WIPE_CONFIRM_WINDOW_MS) {
+            src.sendFailure(Component.literal("Подтверждение просрочено. Начните с 'gl wipe'."));
+            return 0;
+        }
+        wipeArmedAt = 0;
+        int dropped = GLStorage.wipe();
+        if (dropped < 0) {
+            src.sendFailure(Component.literal("Сброс не удался — подробности в логе сервера."));
+            return 0;
+        }
+        com.gle.core.db.WorldGuard.adopt(src.getServer());
+        src.sendSystemMessage(Component.literal(
+                "База очищена (таблиц удалено: " + dropped + ") и закреплена за текущим миром."));
+        return 1;
+    }
+
     private static int doPreviewCancel(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack src = ctx.getSource();
         ServerPlayer player = src.getPlayer();
@@ -301,6 +366,16 @@ public final class GLCommand {
     }
 
     private static int doStatus(CommandContext<CommandSourceStack> ctx) {
+        // Состояние сверки мира: расхождение делает откат опасным, это должно быть видно.
+        var guard = com.gle.core.db.WorldGuard.state();
+        if (guard == com.gle.core.db.WorldGuard.State.MISMATCHED) {
+            ctx.getSource().sendSystemMessage(Component.literal(
+                    "§cМир: НЕ совпадает с базой (логи от прежней карты). Сброс: gl wipe из консоли."));
+        } else if (guard == com.gle.core.db.WorldGuard.State.UNKNOWN) {
+            ctx.getSource().sendSystemMessage(Component.literal("§7Мир: сверка не выполнена."));
+        } else {
+            ctx.getSource().sendSystemMessage(Component.literal("§aМир: совпадает с базой."));
+        }
         CommandSourceStack src = ctx.getSource();
         RollbackManager mgr = RollbackManager.get();
         src.sendSystemMessage(Component.literal("§7[GLE] Активных заданий: " + mgr.activeCount()

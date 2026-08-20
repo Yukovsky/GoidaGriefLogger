@@ -72,7 +72,7 @@ public final class WriteQueue {
 
     private final GLDatabase db;
     private final BlockingQueue<WriteTask> queue;
-    private final Thread worker;
+    private Thread worker;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicLong dropped = new AtomicLong();
     private volatile long lastOverflowWarn = 0;
@@ -282,6 +282,19 @@ public final class WriteQueue {
         }
         String state = e.getSQLState();
         return state != null && state.startsWith("08");
+    }
+
+    /**
+     * Поднять поток записи заново после {@link #stop()}. Нужно сбросу базы: остановленный
+     * {@link Thread} повторно не запускается, поэтому создаём новый.
+     */
+    public synchronized void restart() {
+        if (running.get()) return;
+        worker = new Thread(this::loop, "GLE-DB-Writer");
+        worker.setDaemon(true);
+        running.set(true);
+        worker.start();
+        LOGGER.info("Поток записи GLE перезапущен.");
     }
 
     public long droppedCount() {

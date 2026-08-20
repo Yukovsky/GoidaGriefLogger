@@ -85,6 +85,7 @@ public final class GLSelfCheck {
         checkApplyOrder(c);
         checkRoundTrip(c);
         checkNbtDedup(c, database);
+        checkWorldMeta(c);
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
@@ -423,6 +424,30 @@ public final class GLSelfCheck {
         check("physics: имя резолвится обратно по uuid",
                 com.gle.core.SystemUsers.PHYSICS.equals(com.gle.core.SystemUsers.nameOf(
                         com.gle.core.SystemUsers.uuidOf(com.gle.core.SystemUsers.PHYSICS))));
+    }
+
+    /**
+     * Метка мира в базе. От неё зависит, поймёт ли мод, что карту сбросили: если запись
+     * не сохраняется или не перезаписывается, расхождение никогда не будет замечено,
+     * и откат по чужим координатам изуродует новый мир молча.
+     */
+    private static void checkWorldMeta(Connection c) throws Exception {
+        check("meta: у пустой базы метки мира нет",
+                com.gle.core.db.GleMetaDao.get(c, com.gle.core.db.GleMetaDao.WORLD_ID) == null);
+
+        com.gle.core.db.GleMetaDao.put(c, false, com.gle.core.db.GleMetaDao.WORLD_ID, "world-A");
+        check("meta: метка записывается",
+                "world-A".equals(com.gle.core.db.GleMetaDao.get(c, com.gle.core.db.GleMetaDao.WORLD_ID)));
+
+        // Повторная запись обязана ЗАМЕНИТЬ значение, а не упасть на первичном ключе
+        // и не завести вторую строку — иначе после сброса база осталась бы с прежней меткой.
+        com.gle.core.db.GleMetaDao.put(c, false, com.gle.core.db.GleMetaDao.WORLD_ID, "world-B");
+        check("meta: повторная запись заменяет значение",
+                "world-B".equals(com.gle.core.db.GleMetaDao.get(c, com.gle.core.db.GleMetaDao.WORLD_ID)));
+        check("meta: строка одна, дубля не завелось", count(c, "gle_meta") == 1);
+
+        check("meta: неизвестный ключ даёт null",
+                com.gle.core.db.GleMetaDao.get(c, "нет-такого") == null);
     }
 
     private static int count(Connection c, String from) throws Exception {

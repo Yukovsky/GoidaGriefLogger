@@ -235,6 +235,12 @@ public final class SchemaMigrator {
         execQuiet(c, "CREATE INDEX " + (db.isMysql() ? "" : "IF NOT EXISTS ")
                 + "idx_gle_nbt_pos ON gle_block_nbt(level, x, y, z, time)");
 
+        // Служебные пары «ключ-значение» о самой базе (метка мира и т.п.).
+        // key_name, а не key: KEY — зарезервированное слово в MySQL.
+        exec(c, "CREATE TABLE IF NOT EXISTS gle_meta (" +
+                "key_name " + (db.isMysql() ? "VARCHAR(64)" : "TEXT") + " PRIMARY KEY, " +
+                "value " + txt + ")");
+
         // Снимки NBT, адресуемые содержимым: одинаковые лежат один раз, события ссылаются по id.
         exec(c, "CREATE TABLE IF NOT EXISTS gle_nbt (" +
                 "id " + pk + ", hash " + (db.isMysql() ? "CHAR(64)" : "TEXT") + " NOT NULL UNIQUE, " +

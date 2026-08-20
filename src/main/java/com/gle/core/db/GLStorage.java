@@ -128,6 +128,58 @@ public final class GLStorage {
         return database.isMysql();
     }
 
+    /**
+     * Полностью очистить базу и создать схему заново.
+     * <p>
+     * Нужно после сброса карты: логи от прежнего мира бесполезны, а их координаты опасны для
+     * отката. Удаляются именно ТАБЛИЦЫ мода, а не база целиком: {@code DROP DATABASE} требует
+     * отдельных прав, сносит чужие таблицы, если база общая, и заставляет заводить её заново
+     * руками.
+     * <p>
+     * Поток записи останавливается на время операции, чтобы схему не меняли из-под него —
+     * {@code Connection} не потокобезопасен. После пересоздания кэши сбрасываются: id справочников
+     * и снимков больше не существуют.
+     *
+     * @return число удалённых таблиц, либо -1 при ошибке
+     */
+    public static synchronized int wipe() {
+        if (instance == null) return -1;
+        GLStorage self = instance;
+        self.ready = false;
+        self.writeQueue.stop();
+        int dropped = 0;
+        try {
+            java.sql.Connection c = self.database.reconnect();
+            if (c == null) return -1;
+            String[] tables = {
+                    "blocks", "containers", "items", "sessions", "chats", "commands",
+                    "usernames", "users", "levels", "materials", "entities",
+                    "gle_signs", "gle_world_entities", "gle_block_nbt", "gle_player_deaths",
+                    "gle_nbt", "gle_meta", "rollback_job_blocks", "rollback_jobs"
+            };
+            for (String t : tables) {
+                try (java.sql.Statement st = c.createStatement()) {
+                    st.execute("DROP TABLE IF EXISTS " + t);
+                    dropped++;
+                } catch (java.sql.SQLException e) {
+                    LOGGER.warn("Не удалось удалить таблицу {}: {}", t, e.getMessage());
+                }
+            }
+            new SchemaMigrator(self.database).migrate();
+            self.idCache.clear();
+            self.nbtStore.clear();
+            LOGGER.warn("База логов очищена и создана заново (удалено таблиц: {}).", dropped);
+            return dropped;
+        } catch (Exception e) {
+            LOGGER.error("Сброс базы не удался", e);
+            return -1;
+        } finally {
+            // Очередь пересоздаём: прежний поток уже остановлен и повторно не запускается.
+            self.writeQueue.restart();
+            self.ready = true;
+        }
+    }
+
     public static synchronized void shutdown() {
         doShutdown(true);
     }

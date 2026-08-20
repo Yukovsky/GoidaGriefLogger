@@ -115,6 +115,9 @@ public final class GLE {
         } else {
             LOGGER.error("Хранилище недоступно — все листенеры будут молча пропускать запись.");
         }
+        // Сверяем базу с миром: если карту сбросили, старые координаты указывают в никуда,
+        // а откат по ним изуродует новый мир. Ничего не удаляем — только предупреждаем.
+        if (ok) com.gle.core.db.WorldGuard.verify(event.getServer());
         Platform platform = Platform.get();
         if (platform != null) {
             integrations.activateAll(platform);

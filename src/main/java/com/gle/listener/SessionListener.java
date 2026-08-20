@@ -18,7 +18,22 @@ public final class SessionListener {
     public void onLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             record(player, GLActions.SESSION_JOIN);
+            warnAboutForeignWorld(player);
         }
+    }
+
+    /**
+     * Предупредить администратора о том, что логи от прежней карты. В консоль это уже написано
+     * при старте, но администратор туда заглядывает не всегда, а откат по чужим координатам
+     * изуродует мир молча.
+     */
+    private static void warnAboutForeignWorld(ServerPlayer player) {
+        if (com.gle.core.db.WorldGuard.state() != com.gle.core.db.WorldGuard.State.MISMATCHED) return;
+        if (!player.hasPermissions(3)) return;
+        player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§c[GLE] Логи в базе относятся к ДРУГОМУ миру — похоже, карту сбрасывали."));
+        player.sendSystemMessage(net.minecraft.network.chat.Component.literal(
+                "§7Откат по ним изуродует текущий мир. Очистить базу можно только из консоли: §fgl wipe§7."));
     }
 
     @SubscribeEvent
