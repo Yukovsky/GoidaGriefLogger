@@ -383,31 +383,70 @@ public final class GLCommand {
         return 1;
     }
 
+    /**
+     * Подсказка рассчитана на того, кто видит команду впервые: сначала порядок работы,
+     * потом сами команды, потом фильтры — обязательные отдельно от необязательных.
+     * <p>
+     * Консольные команды сюда НЕ попадают: из игры они всё равно недоступны, а в списке
+     * только сбивали бы с толку. Их место — документация для администратора сервера.
+     */
     private static int doHelp(CommandContext<CommandSourceStack> ctx) {
         CommandSourceStack s = ctx.getSource();
-        s.sendSystemMessage(Component.literal("§6=== GLE / GLRA — откат изменений ==="));
-        s.sendSystemMessage(Component.literal("§e/gl rollback <фильтры>§7 — откатить изменения"));
-        s.sendSystemMessage(Component.literal("§e/gl restore <фильтры>§7 — вернуть откатанное (те же фильтры, как в CoreProtect)"));
-        s.sendSystemMessage(Component.literal("§e/gl lookup <фильтры>§7 — история (откатанное §mзачёркнуто§r§7); §e/gl page <n>§7 — страница"));
-        s.sendSystemMessage(Component.literal("§e/gl inspect§7 — режим инспектора: клик по блоку → история места (повторно — выключить)"));
-        s.sendSystemMessage(Component.literal("§e/gl preview <фильтры>§7 — показать без изменений; §e/gl preview accept§7 — применить; §e/gl preview cancel"));
-        s.sendSystemMessage(Component.literal("§e/gl abort§7 — стоп активного задания; §e/gl status"));
-        // Показываем и консольную команду: иначе о ней не узнать, а после сброса карты она нужна.
-        // Отдельной строкой с пометкой — из игры она недоступна намеренно.
+        s.sendSystemMessage(Component.literal("§6=== GoidaGriefLogger — история мира и откат ==="));
         s.sendSystemMessage(Component.literal(
-                "§8── §7только из консоли сервера (не из игры): §fgl wipe§7 — очистить базу логов"));
+                "§7Кто, когда и что изменил. Можно вернуть территорию к состоянию на нужный момент."));
+
+        s.sendSystemMessage(Component.literal("§6Порядок работы:"));
         s.sendSystemMessage(Component.literal(
-                "§8   нужна после сброса карты; выполняется в два шага: §fgl wipe§8 → §fgl wipe confirm"));
-        s.sendSystemMessage(Component.literal("§6Фильтры §7(можно полные и краткие имена):"));
-        s.sendSystemMessage(Component.literal("§7  time:§f|t:§f<время>§7 — 1h, 30m, 1d, 1d12h §o(обязательно)"));
-        s.sendSystemMessage(Component.literal("§7  radius:§f|r:§f<радиус|global>§7 — блоков вокруг вас или весь мир §o(обязательно)"));
-        s.sendSystemMessage(Component.literal("§7  world:§f|w:§f<мир|*>§7 — напр. world:the_nether или world:* (все миры)"));
-        s.sendSystemMessage(Component.literal("§7  user:§f|u:§f<игрок>§7 — напр. u:Steve, u:[TNT]; §fu:!Игрок§7 — исключить игрока"));
-        s.sendSystemMessage(Component.literal("§7  action:§f|a:§f<действие>§7 — place/break/use/kill/container/session; §fa:!break§7 — исключить"));
-        s.sendSystemMessage(Component.literal("§7  source:§f|s:§f<источник>§7 — напр. s:tnt, s:create:deployer"));
-        s.sendSystemMessage(Component.literal("§7  include:§f|exclude:§f<предмет/блок>§7 — modid:name; modid можно опустить (item_drain), маска include:*drain*"));
-        s.sendSystemMessage(Component.literal("§7  blocks§f|b§7 — только блоки, §fitems§7|§fi§7 — только предметы"));
-        s.sendSystemMessage(Component.literal("§8Примеры: /gl rollback t:1h r:10 s:tnt §8| §8/gl rollback t:7d r:global world:* u:Griefer"));
+                "§7 1. §e/gl inspect§7 или §e/gl lookup§7 — посмотреть, что здесь было"));
+        s.sendSystemMessage(Component.literal(
+                "§7 2. §e/gl preview§7 — увидеть результат отката, не меняя мир"));
+        s.sendSystemMessage(Component.literal(
+                "§7 3. §e/gl preview accept§7 — применить показанное"));
+
+        s.sendSystemMessage(Component.literal("§6Команды:"));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl inspect§7 — клик по блоку показывает историю места. Повторно — выключить."));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl lookup <фильтры>§7 — история списком: наведение — подробности, клик — телепорт."));
+        s.sendSystemMessage(Component.literal(
+                "§7   Откатанное §mзачёркнуто§r§7. §e/gl page <n>§7 — другая страница."));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl preview <фильтры>§7 — показать результат отката; область обведена частицами."));
+        s.sendSystemMessage(Component.literal(
+                "§7   §e/gl preview accept§7 — применить, §e/gl preview cancel§7 — убрать показ."));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl rollback <фильтры>§7 — вернуть территорию к состоянию на указанный момент."));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl restore <фильтры>§7 — обратная операция: вернуть то, что откатили."));
+        s.sendSystemMessage(Component.literal(
+                "§e/gl abort§7 — прервать своё активное задание. §e/gl status§7 — состояние мода."));
+
+        s.sendSystemMessage(Component.literal("§6Фильтры §c— время и радиус обязательны§6, остальные по желанию:"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §ftime:§7|§ft:§7<время> §c(обязательно)§7 — 1h, 30m, 1d, 1d12h"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §fradius:§7|§fr:§7<число> §c(обязательно)§7 — блоков вокруг вас, либо §fr:global§7 — весь мир"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §fuser:§7|§fu:§7<кто> — §fu:Steve§7; системные в скобках: §fu:[TNT]§7; §fu:!Steve§7 — исключить"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §faction:§7|§fa:§7<что> — place, break, use, kill, container, session; §fa:!break§7 — исключить"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §fworld:§7|§fw:§7<мир> — §fworld:the_nether§7, либо §fworld:*§7 — все миры"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §fsource:§7|§fs:§7<источник> — §fs:tnt§7, §fs:creeper§7, §fs:create:deployer"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §finclude:§7|§fexclude:§7<блок> — §fstone§7, §fminecraft:chest§7, маска §finclude:*ore*"));
+        s.sendSystemMessage(Component.literal(
+                "§7 §fblocks§7 или §fitems§7 — только блоки либо только предметы"));
+
+        s.sendSystemMessage(Component.literal("§8Примеры:"));
+        s.sendSystemMessage(Component.literal(
+                "§8 /gl lookup t:1h r:10§8 — что происходило рядом за последний час"));
+        s.sendSystemMessage(Component.literal(
+                "§8 /gl rollback t:2h r:20 u:Griefer§8 — откатить действия одного игрока"));
+        s.sendSystemMessage(Component.literal(
+                "§8 /gl rollback t:1h r:10 s:tnt§8 — откатить только урон от ТНТ"));
         return 1;
     }
 

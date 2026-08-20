@@ -215,7 +215,7 @@ from inside the game.
 | `/gl preview cancel` | Drop the preview | OP 2 |
 | `/gl abort` | Stop your running rollback or restore | OP 2 |
 | `/gl status` | Queue depth, running jobs, and whether the world matches the database | OP 2 |
-| `/gl help` | Commands and filters in game | OP 2 |
+| `/gl help` | In-game commands and filters (console-only commands are not listed there) | OP 2 |
 | **`gl wipe`** | **Wipe the whole database and pin it to the current world** | **Console / RCON only** |
 | **`gl wipe confirm`** | **Confirm the wipe within 30 seconds** | **Console / RCON only** |
 
