@@ -101,6 +101,39 @@ public final class GLCommand {
 
     // ---------- автодополнение ----------
 
+    // --- принимаемые формы фильтров -------------------------------------------
+    //
+    // Один источник для парсера, автодополнения и подсказки. Раньше списки жили порознь,
+    // и они разошлись: dim:, inc: и exc: парсер принимал, но автодополнение о них не знало,
+    // и узнать об их существовании было неоткуда.
+
+    private static final String[] F_TIME    = {"time:", "t:"};
+    private static final String[] F_RADIUS  = {"radius:", "r:"};
+    private static final String[] F_WORLD   = {"world:", "w:", "dim:"};
+    private static final String[] F_USER    = {"user:", "u:"};
+    private static final String[] F_ACTION  = {"action:", "a:"};
+    private static final String[] F_SOURCE  = {"source:", "s:"};
+    private static final String[] F_INCLUDE = {"include:", "inc:"};
+    private static final String[] F_EXCLUDE = {"exclude:", "exc:"};
+    /** Флаги без значения. */
+    private static final String[] F_FLAGS   = {"blocks", "b", "items", "i"};
+
+    /** Все формы разом — для подсказки автодополнения. */
+    public static String[] allFilterForms() {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        for (String[] group : new String[][]{F_TIME, F_RADIUS, F_WORLD, F_USER, F_ACTION,
+                F_SOURCE, F_INCLUDE, F_EXCLUDE, F_FLAGS}) {
+            out.addAll(java.util.List.of(group));
+        }
+        return out.toArray(new String[0]);
+    }
+
+    private static String[] concat(String[] a, String[] b) {
+        String[] out = java.util.Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
+
     private static CompletableFuture<Suggestions> suggestFilters(CommandContext<CommandSourceStack> ctx,
                                                                  SuggestionsBuilder builder) {
         String remaining = builder.getRemaining();
@@ -111,17 +144,17 @@ public final class GLCommand {
         String lower = token.toLowerCase();
 
         String pfx;
-        if ((pfx = matched(lower, "time:", "t:")) != null) {
+        if ((pfx = matched(lower, F_TIME)) != null) {
             for (String s : new String[]{"1h", "30m", "6h", "1d", "7d", "1d12h"}) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
-        } else if ((pfx = matched(lower, "radius:", "r:")) != null) {
+        } else if ((pfx = matched(lower, F_RADIUS)) != null) {
             for (String s : new String[]{"5", "10", "25", "50", "global"}) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
-        } else if ((pfx = matched(lower, "world:", "w:", "dim:")) != null) {
+        } else if ((pfx = matched(lower, F_WORLD)) != null) {
             b.suggest(pfx + "*");
             for (var key : ctx.getSource().getServer().levelKeys()) {
                 String dim = key.location().toString();
                 if ((pfx + dim).toLowerCase().startsWith(lower)) b.suggest(pfx + dim);
             }
-        } else if ((pfx = matched(lower, "user:", "u:")) != null) {
+        } else if ((pfx = matched(lower, F_USER)) != null) {
             String pref = token.substring(pfx.length()).toLowerCase();
             for (String name : SystemUsers.ALL.keySet()) if (name.toLowerCase().startsWith(pref)) b.suggest(pfx + name);
             ServerPlayer sp = ctx.getSource().getPlayer();
@@ -129,18 +162,18 @@ public final class GLCommand {
                 String n = p.getGameProfile().getName();
                 if (n.toLowerCase().startsWith(pref)) b.suggest(pfx + n);
             }
-        } else if ((pfx = matched(lower, "source:", "s:")) != null) {
+        } else if ((pfx = matched(lower, F_SOURCE)) != null) {
             for (String s : SOURCE_TYPES) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
-        } else if ((pfx = matched(lower, "action:", "a:")) != null) {
+        } else if ((pfx = matched(lower, F_ACTION)) != null) {
             for (String s : new String[]{"place", "break", "use", "kill", "container", "session",
                     "!place", "!break", "!use", "!kill", "!container"}) if ((pfx + s).startsWith(lower)) b.suggest(pfx + s);
-        } else if ((pfx = matched(lower, "include:", "inc:", "exclude:", "exc:")) != null) {
+        } else if ((pfx = matched(lower, concat(F_INCLUDE, F_EXCLUDE))) != null) {
             // Любой предмет/блок игры (modid:name), как в GriefLogger.
             SuggestionsBuilder rb = builder.createOffset(base + pfx.length());
             return SharedSuggestionProvider.suggestResource(allMaterials(), rb);
         } else {
-            for (String key : new String[]{"time:", "t:", "radius:", "r:", "world:", "w:",
-                    "user:", "u:", "action:", "a:", "source:", "s:", "include:", "exclude:", "blocks", "items"}) {
+            // Из того же источника, что и парсер: добавленный фильтр попадает в подсказку сам.
+            for (String key : allFilterForms()) {
                 if (key.startsWith(lower)) b.suggest(key);
             }
         }
@@ -432,13 +465,13 @@ public final class GLCommand {
         s.sendSystemMessage(Component.literal(
                 "§7 §faction:§7|§fa:§7<что> — place, break, use, kill, container, session; §fa:!break§7 — исключить"));
         s.sendSystemMessage(Component.literal(
-                "§7 §fworld:§7|§fw:§7<мир> — §fworld:the_nether§7, либо §fworld:*§7 — все миры"));
+                "§7 §fworld:§7|§fw:§7|§fdim:§7<мир> — §fworld:the_nether§7, либо §fworld:*§7 — все миры"));
         s.sendSystemMessage(Component.literal(
                 "§7 §fsource:§7|§fs:§7<источник> — §fs:tnt§7, §fs:creeper§7, §fs:create:deployer"));
         s.sendSystemMessage(Component.literal(
-                "§7 §finclude:§7|§fexclude:§7<блок> — §fstone§7, §fminecraft:chest§7, маска §finclude:*ore*"));
+                "§7 §finclude:§7|§finc:§7 и §fexclude:§7|§fexc:§7<блок> — §fstone§7, §fminecraft:chest§7, маска §finc:*ore*"));
         s.sendSystemMessage(Component.literal(
-                "§7 §fblocks§7 или §fitems§7 — только блоки либо только предметы"));
+                "§7 §fblocks§7|§fb§7 или §fitems§7|§fi§7 — только блоки либо только предметы"));
 
         s.sendSystemMessage(Component.literal("§8Примеры:"));
         s.sendSystemMessage(Component.literal(
@@ -469,12 +502,12 @@ public final class GLCommand {
             if (token.isEmpty()) continue;
             String lower = token.toLowerCase();
             String v;
-            if ((v = strip(lower, token, "time:", "t:")) != null) {
+            if ((v = strip(lower, token, F_TIME)) != null) {
                 long dur = TimeParser.parseDurationMs(v);
                 if (dur < 0) return null;
                 f.timeFrom = now - dur;
                 hasTime = true;
-            } else if ((v = strip(lower, token, "radius:", "r:")) != null) {
+            } else if ((v = strip(lower, token, F_RADIUS)) != null) {
                 if (isGlobal(v)) {
                     f.setGlobalBox();
                     hasRadius = true;
@@ -486,24 +519,24 @@ public final class GLCommand {
                         hasRadius = true;
                     } catch (NumberFormatException e) { return null; }
                 }
-            } else if ((v = strip(lower, token, "world:", "w:", "dim:")) != null) {
+            } else if ((v = strip(lower, token, F_WORLD)) != null) {
                 if (isGlobal(v)) f.allWorlds = true;
                 else f.levelName = normDim(v);
-            } else if ((v = strip(lower, token, "user:", "u:")) != null) {
+            } else if ((v = strip(lower, token, F_USER)) != null) {
                 // u:Имя — только этот игрок; u:!Имя — исключить игрока. Регистр сохраняем ([TNT] и ники).
                 if (v.startsWith("!")) f.excludePlayerNames.add(v.substring(1));
                 else f.playerNames.add(v);
-            } else if ((v = strip(lower, token, "action:", "a:")) != null) {
+            } else if ((v = strip(lower, token, F_ACTION)) != null) {
                 // a:place / a:break / a:!use … (форма GriefLogger a:[CREATE] тоже принимается)
                 boolean neg = v.startsWith("!");
                 String cat = com.gle.core.rollback.ActionFilters.canon(neg ? v.substring(1) : v);
                 if (cat == null) return null; // неизвестное действие — покажем формат
                 (neg ? f.actionsExclude : f.actionsInclude).add(cat);
-            } else if ((v = strip(lower, token, "source:", "s:")) != null) {
+            } else if ((v = strip(lower, token, F_SOURCE)) != null) {
                 f.sourceType = v;
-            } else if ((v = strip(lower, token, "include:", "inc:")) != null) {
+            } else if ((v = strip(lower, token, F_INCLUDE)) != null) {
                 f.includeMaterials.add(normMat(v));
-            } else if ((v = strip(lower, token, "exclude:", "exc:")) != null) {
+            } else if ((v = strip(lower, token, F_EXCLUDE)) != null) {
                 f.excludeMaterials.add(normMat(v));
             } else if (lower.equals("i") || lower.equals("items")) {
                 itemsFlag = true;

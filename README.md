@@ -234,14 +234,22 @@ resolvable through FTB Ranks if it is installed.
 
 ### Parameters
 
+`time` and `radius` are required; everything else is optional. Each has a short alias.
+
 | Parameter | Description |
 |---|---|
-| `u:<player>` | Player name |
-| `t:<time>` | Time limit — `1h`, `30m`, `2d`, etc. |
-| `r:<radius>` | Block radius around your position |
-| `a:<action>` | Action type — `break`, `place`, `kill`, `explode`, `pick_up`, … |
-| `b:<block>` | Block or item ID — e.g. `minecraft:chest` |
-| `p:<page>` | Page number for lookup results |
+| `time:` `t:` | **Required.** How far back — `1h`, `30m`, `2d`, `1d12h` |
+| `radius:` `r:` | **Required.** Blocks around you, or `r:global` for the whole world |
+| `world:` `w:` `dim:` | Dimension — `world:the_nether`, or `world:*` for all of them |
+| `user:` `u:` | Player or system user — `u:Steve`, `u:[TNT]`; `u:!Steve` excludes |
+| `action:` `a:` | `place`, `break`, `use`, `kill`, `container`, `session`; `a:!break` excludes |
+| `source:` `s:` | What caused it — `s:tnt`, `s:creeper`, `s:create:deployer` |
+| `include:` `inc:` | Only these blocks or items — `stone`, `minecraft:chest`, mask `inc:*ore*` |
+| `exclude:` `exc:` | Skip these |
+| `blocks` `b` | Blocks only |
+| `items` `i` | Items only |
+
+Pagination is a separate command, `/gl page <n>`, not a filter.
 
 ### Usage
 

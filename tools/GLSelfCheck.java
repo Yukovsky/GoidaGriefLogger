@@ -86,6 +86,7 @@ public final class GLSelfCheck {
         checkRoundTrip(c);
         checkNbtDedup(c, database);
         checkWorldMeta(c);
+        checkFilterForms();
         checkWritePath();
         checkMaterialNames();
         checkRolledBackStyling();
@@ -448,6 +449,24 @@ public final class GLSelfCheck {
 
         check("meta: неизвестный ключ даёт null",
                 com.gle.core.db.GleMetaDao.get(c, "нет-такого") == null);
+    }
+
+    /**
+     * Формы фильтров, предлагаемые автодополнением. Раньше парсер и подсказка держали свои
+     * списки порознь и разошлись: dim:, inc: и exc: принимались, но не предлагались, и узнать
+     * об их существовании было неоткуда. Теперь источник один — проверяем, что он цел.
+     */
+    private static void checkFilterForms() {
+        var forms = java.util.List.of(com.gle.core.command.GLCommand.allFilterForms());
+
+        for (String required : new String[]{
+                "time:", "t:", "radius:", "r:", "world:", "w:", "dim:", "user:", "u:",
+                "action:", "a:", "source:", "s:", "include:", "inc:", "exclude:", "exc:",
+                "blocks", "b", "items", "i"}) {
+            check("filters: форма '" + required + "' предлагается", forms.contains(required));
+        }
+        check("filters: дублей среди форм нет",
+                new java.util.HashSet<>(forms).size() == forms.size());
     }
 
     private static int count(Connection c, String from) throws Exception {
