@@ -60,6 +60,21 @@ the GUI open, and nothing can be hidden in an unusual slot.
   duplicate or destroy items
 - Async batch processing — all queries and writes run off the main thread, no TPS impact
 
+### World Safety
+
+The database is pinned to the world it was collected in. A random marker is stored **inside the
+world save**, so resetting the map takes it along; the config would have survived and told you
+nothing.
+
+If the marker in the database no longer matches the world, the server log says so at startup and
+operators are warned when they join. Nothing is deleted automatically — losing logs to a false
+positive is worse than a warning.
+
+- **`gl wipe`** — drops every table and recreates an empty schema, then pins it to the current world
+- Console and RCON only. An in-game operator cannot run it, and neither can a command block:
+  the history exists to hold operators accountable too
+- Two steps: `gl wipe` reports what will be lost, `gl wipe confirm` within 30 seconds does it
+
 ### Inspect & Lookup
 
 - **`/gl inspect`** — toggle inspect mode; click any block to see its full history
@@ -216,6 +231,9 @@ Permission node: `goidagrieflogger.command` (default: OP level 2).
 /gl abort                            # stop your running rollback or restore
 /gl status
 /gl help
+
+gl wipe                              # console only: wipe the database after a map reset
+gl wipe confirm
 ```
 
 ---
