@@ -93,6 +93,7 @@ public final class GLSelfCheck {
         checkMachineActivity();
         checkOptionalModSupport();
         checkRollbackSemantics();
+        checkRollbackRowLimit(c);
 
         database.close();
         if (failures > 0) {
@@ -501,6 +502,58 @@ public final class GLSelfCheck {
     }
 
     /** Две строки blocks (одна откатана) и две containers (одна откатана). */
+    /**
+     * Широкая команда (r:global t:30d) не должна вычитывать в память всю историю: выборка
+     * ограничена maxRollbackRows. Важно не только КОЛИЧЕСТВО, но и то, ЧТО именно осталось —
+     * лимит обязан отсекать хвост сортировки, а не случайные строки: при откате ценнее свежие
+     * записи, они применяются первыми.
+     */
+    private static void checkRollbackRowLimit(Connection c) throws Exception {
+        String ins = "INSERT INTO blocks(id, time, user, level, x, y, z, type, action, rolled_back) "
+                + "VALUES(?, ?, (SELECT id FROM users WHERE uuid='uuid-steve'), 1, 300, 64, 300, 1, 0, 0)";
+        try (PreparedStatement ps = c.prepareStatement(ins)) {
+            for (int i = 0; i < 5; i++) {
+                ps.setLong(1, 50 + i); ps.setLong(2, 1000L + i * 1000L); ps.executeUpdate();
+            }
+        }
+        RollbackFilter f = new RollbackFilter();
+        f.levelName = "minecraft:overworld";
+        f.timeFrom = 0; f.timeTo = Long.MAX_VALUE;
+        f.setBox(300, 64, 300, 2);
+
+        check("limit: без лимита видны все 5 строк", RollbackData.queryBlocks(c, f, true).size() == 5);
+
+        com.gle.core.CoreConfig.set(limitedTo(3));
+        try {
+            var limited = RollbackData.queryBlocks(c, f, true);
+            check("limit: выборка обрезана до лимита (ожидали 3, получили " + limited.size() + ")",
+                    limited.size() == 3);
+            check("limit: остались самые свежие записи, отсечён хвост",
+                    limited.size() == 3 && limited.get(0).time() == 5000L
+                            && limited.get(2).time() == 3000L);
+
+            var items = RollbackData.queryItems(c, f, true);
+            check("limit: выборка предметов тоже ограничена", items.size() <= 3);
+        } finally {
+            com.gle.core.CoreConfig.set(null);
+        }
+        check("limit: после сброса конфига выборка снова полная",
+                RollbackData.queryBlocks(c, f, true).size() == 5);
+    }
+
+    /** Конфиг ядра с урезанным лимитом выборки; остальное — как по умолчанию. */
+    private static com.gle.core.CoreConfig limitedTo(int rows) {
+        return new com.gle.core.CoreConfig() {
+            @Override public boolean blockActivationEnabled() { return true; }
+            @Override public int maxNbtSizeKb() { return 512; }
+            @Override public int maxRollbackRows() { return rows; }
+            @Override public List<? extends String> worldBlacklist() { return List.of(); }
+            @Override public List<? extends String> sourceTypeBlacklist() { return List.of(); }
+            @Override public List<? extends String> blockBlacklist() { return List.of(); }
+            @Override public List<? extends String> modBlacklist() { return List.of(); }
+        };
+    }
+
     private static void seed(Connection c) throws Exception {
         try (Statement st = c.createStatement()) {
             st.execute("INSERT INTO levels(id, name) VALUES(1, 'minecraft:overworld')");

@@ -61,6 +61,7 @@ public final class GLEConfig {
     public static final ModConfigSpec.IntValue progressIntervalTicks;
     public static final ModConfigSpec.IntValue maxRestoreAgeDays;
     public static final ModConfigSpec.IntValue maxPreviewDurationSec;
+    public static final ModConfigSpec.IntValue maxRollbackRows;
     public static final ModConfigSpec.IntValue previewAutoCancelBlocks;
 
     // [integrations.create] / [integrations.toms] / [integrations.backpacks]
@@ -160,6 +161,12 @@ public final class GLEConfig {
         maxRestoreAgeDays     = b.comment("Макс. возраст роллбека для /gl restore (дни)").defineInRange("maxRestoreAgeDays", 7, 1, 365);
         maxPreviewDurationSec = b.comment("Время жизни preview (сек)").defineInRange("maxPreviewDurationSec", 60, 5, 600);
         previewAutoCancelBlocks = b.comment("Дистанция авто-отмены preview (блоки)").defineInRange("previewAutoCancelBlocks", 50, 8, 256);
+        maxRollbackRows       = b.comment(
+                "Макс. строк, вычитываемых из БД за ОДИН откат/restore/preview. Широкая команда",
+                "(r:global t:30d) иначе тянет в память всю подходящую историю вместе со снимками NBT.",
+                "Лишнее отсекается с ХВОСТА выборки (самое старое при откате), о срезе пишется",
+                "предупреждение в лог сервера — сузьте радиус или окно и повторите.")
+                .defineInRange("maxRollbackRows", 300_000, 1_000, 10_000_000);
         b.pop();
 
         b.comment("Интеграции").push("integrations");
@@ -220,6 +227,7 @@ public final class GLEConfig {
         return new CoreConfig() {
             @Override public boolean blockActivationEnabled() { return enableBlockActivation.get(); }
             @Override public int maxNbtSizeKb() { return maxNbtSizeKb.get(); }
+            @Override public int maxRollbackRows() { return maxRollbackRows.get(); }
             @Override public List<? extends String> worldBlacklist() { return worldBlacklist.get(); }
             @Override public List<? extends String> sourceTypeBlacklist() { return sourceTypeBlacklist.get(); }
             @Override public List<? extends String> blockBlacklist() { return blockBlacklist.get(); }

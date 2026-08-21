@@ -24,6 +24,9 @@ public interface CoreConfig {
     /** Максимальный размер NBT BlockEntity для сохранения, КБ. */
     int maxNbtSizeKb();
 
+    /** Максимум строк, вычитываемых из БД за один откат/restore/preview. */
+    int maxRollbackRows();
+
     /** Измерения, которые не логируем. */
     List<? extends String> worldBlacklist();
 
@@ -41,6 +44,7 @@ public interface CoreConfig {
     CoreConfig DEFAULT = new CoreConfig() {
         @Override public boolean blockActivationEnabled() { return true; }
         @Override public int maxNbtSizeKb() { return 512; }
+        @Override public int maxRollbackRows() { return 300_000; }
         @Override public List<? extends String> worldBlacklist() { return List.of(); }
         @Override public List<? extends String> sourceTypeBlacklist() { return List.of(); }
         @Override public List<? extends String> blockBlacklist() { return List.of(); }

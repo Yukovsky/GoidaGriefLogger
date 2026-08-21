@@ -2,9 +2,13 @@ package com.gle.core.rollback;
 
 import org.jetbrains.annotations.Nullable;
 
+import com.gle.core.CoreConfig;
 import com.gle.core.GLActions;
 
 import net.minecraft.core.BlockPos;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -24,7 +28,26 @@ import java.util.TreeMap;
  */
 public final class RollbackData {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger("GLE/Rollback");
+
     private RollbackData() {}
+
+    /**
+     * Ограничение выборки: без него {@code /gl rollback r:global t:30d} тянет в память всю
+     * подходящую историю вместе с BLOB'ами снимков. Лимит применяется ПОСЛЕ сортировки, поэтому
+     * отсекается именно хвост (самое старое при откате), а не случайное подмножество.
+     */
+    private static void appendLimit(StringBuilder sql) {
+        sql.append(" LIMIT ").append(CoreConfig.get().maxRollbackRows());
+    }
+
+    /** Предупредить администратора, что выборка упёрлась в лимит и часть истории не попала в откат. */
+    private static void warnIfTruncated(String what, int size) {
+        int limit = CoreConfig.get().maxRollbackRows();
+        if (size < limit) return;
+        LOGGER.warn("Выборка {} упёрлась в лимит {} строк — ОСТАЛЬНОЕ НЕ ПОПАЛО В ОПЕРАЦИЮ. "
+                + "Сузьте радиус или окно времени, либо увеличьте maxRollbackRows.", what, limit);
+    }
 
     /** Изменение блока для реверса. */
     public record BlockChange(
@@ -74,6 +97,7 @@ public final class RollbackData {
         // Restore — обратная операция: он ПРОИГРЫВАЕТ те же действия заново, значит идти надо
         // от старых к новым, иначе старое действие применится последним и затрёт более новое.
         sql.append(reverse ? " ORDER BY b.time DESC" : " ORDER BY b.time ASC");
+        appendLimit(sql);
 
         List<BlockChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
@@ -87,6 +111,7 @@ public final class RollbackData {
                 }
             }
         }
+        warnIfTruncated("блоков", out.size());
         return enrichNbt(conn, f, out);
     }
 
@@ -153,6 +178,7 @@ public final class RollbackData {
         appendPlayerFilters(sql, f, "c.user");
         appendMaterialFilters(sql, f);
         sql.append(reverse ? " ORDER BY c.time DESC" : " ORDER BY c.time ASC");
+        appendLimit(sql);
 
         List<ItemChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
@@ -168,6 +194,7 @@ public final class RollbackData {
                 }
             }
         }
+        warnIfTruncated("предметов", out.size());
         return out;
     }
 
@@ -254,6 +281,7 @@ public final class RollbackData {
                   AND b.action = """ + GLActions.KILL_ENTITY + "\n");
         appendPlayerFilters(sql, f, "b.user");
         sql.append(reverse ? " ORDER BY b.time DESC" : " ORDER BY b.time ASC");
+        appendLimit(sql);
 
         List<EntityChange> out = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
@@ -266,6 +294,7 @@ public final class RollbackData {
                 }
             }
         }
+        warnIfTruncated("убитых сущностей", out.size());
         return out;
     }
 
