@@ -1,6 +1,6 @@
 # Состояние GoidaGriefLogger
 
-**Версия:** 3.6.2 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
+**Версия:** 3.6.3 · **mod_id:** `goidagrieflogger` · **пакет:** `com.gle.*`
 **Платформа:** Minecraft 1.21.1 · NeoForge 21.1.228+ · Java 21 · только сервер
 
 GoidaGriefLogger — форк и поглощение [GriefLogger](https://github.com/daqem/GriefLogger) (Apache-2.0):
@@ -50,7 +50,7 @@ GoidaGriefLogger — форк и поглощение [GriefLogger](https://gith
 | Атрибуция не-игровых изменений | `GriefContext` (стек на потоке) + `GLESourceResolver` |
 | Содержимое контейнеров | снимок при открытии, разница при закрытии; доступ — через `ContainerAccess` |
 | Собственная работа машин | `MachineTickMixin`, `BrewingStandTickMixin` → `MachineActivity`, вычитается из разницы |
-| Перемещения предметов автоматизацией | `BlockCapabilityMixin` оборачивает `ItemHandler` → `AutomationItemLogger` |
+| Перемещения предметов автоматизацией | `BlockCapabilityMixin` оборачивает `ItemHandler` → `AutomationItemLogger`; прокси переживает сбой обёрнутого хендлера и отдаёт нейтральный результат |
 | Убийства сущностей | `LivingDeathEvent` + снимок через `EntityNbt` |
 | Взрывы | `ExplosionEvent.Detonate` на `LOWEST`; виновник — из ванильного косвенного источника |
 | Взрывы без сущности | `BlastPrimingTracker` связывает кровать и якорь с игроком по месту и времени |
