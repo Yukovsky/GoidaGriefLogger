@@ -61,8 +61,8 @@ public final class NbtUtil {
     }
 
     /**
-     * Снять снимок сломанного блока для точного отката: всегда сохраняет blockstate
-     * ({@link #EMBEDDED_STATE_KEY}), а если у блока есть BlockEntity — ещё и его полный NBT.
+     * Снять снимок сломанного блока с BlockEntity для точного отката: полный NBT самого
+     * BlockEntity плюс blockstate ({@link #EMBEDDED_STATE_KEY}).
      * <p>
      * Решение «есть ли что сохранять» принимается по НАЛИЧИЮ BlockEntity, а НЕ по capability и
      * не по {@code instanceof Container}: это надёжно покрывает любые вместилища на capability
@@ -70,9 +70,9 @@ public final class NbtUtil {
      * содержимое лежит в NBT BlockEntity, но интерфейс {@code Container} они не реализуют, а
      * регистрация capability может отдавать {@code null} в момент слома.
      * <p>
-     * Для блоков без BlockEntity снимок делается ТОЛЬКО если их состояние отличается от дефолтного
-     * (лестницы/брёвна/заборы/двери/слэбы и т.п.) — иначе откат и так вернёт верный блок, и строка
-     * не нужна. Обычные блоки в дефолтном состоянии (камень/земля) снимок не порождают.
+     * У блока без BlockEntity сохранять нечего: его blockstate тем же событием пишется
+     * в {@code blocks.extra_data}, откуда откат его и читает. Отдельная строка в
+     * {@code gle_block_nbt} была бы дубликатом на каждый сломанный забор или ступеньку.
      *
      * @param maxNbtSizeKb лимит размера NBT BlockEntity; 0 = не сохранять NBT (но blockstate всё равно сохраним).
      * @return {@link Capture#EMPTY} если сохранять нечего.
@@ -80,10 +80,9 @@ public final class NbtUtil {
     public static Capture captureBreakSnapshot(LevelAccessor level, BlockPos pos, BlockState state,
                                                HolderLookup.Provider registries, int maxNbtSizeKb) {
         BlockEntity be = level.getBlockEntity(pos);
-        boolean stateMatters = !state.equals(state.getBlock().defaultBlockState());
-        if (be == null && !stateMatters) return Capture.EMPTY;
+        if (be == null) return Capture.EMPTY;
         try {
-            if (be != null && maxNbtSizeKb > 0) {
+            if (maxNbtSizeKb > 0) {
                 CompoundTag tag = be.saveWithFullMetadata(registries);
                 tag.putString(EMBEDDED_STATE_KEY, blockStateToSnbt(state));
                 byte[] bytes = compress(tag);
@@ -93,7 +92,7 @@ public final class NbtUtil {
                 // NBT не влез в лимит — сохраняем хотя бы blockstate, помечаем truncated.
                 return new Capture(compress(stateOnlyTag(state)), true);
             }
-            // Без BlockEntity (или NBT отключён) — только blockstate.
+            // NBT отключён конфигом — только blockstate.
             return new Capture(compress(stateOnlyTag(state)), false);
         } catch (Exception e) {
             LOGGER.warn("Не удалось снять снимок блока на {}: {}", pos, e.getMessage());

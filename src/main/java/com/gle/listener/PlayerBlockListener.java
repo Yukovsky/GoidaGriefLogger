@@ -42,10 +42,10 @@ public final class PlayerBlockListener {
         Player player = event.getPlayer();
         if (!isRealPlayer(player)) return;
 
-        // Снимок содержимого/ориентации сломанного блока для точного отката (gle_block_nbt).
-        captureBreakSnapshot(level, event.getPos());
-
         BlockState state = event.getState();
+        // Снимок содержимого сломанного блока для точного отката (gle_block_nbt).
+        captureBreakSnapshot(level, event.getPos(), state);
+
         BlockLogger.logAs(level, event.getPos(), state, GLActions.BREAK_BLOCK,
                 null, ((ServerPlayer) player).getUUID().toString(), null, null, false);
     }
@@ -54,9 +54,11 @@ public final class PlayerBlockListener {
         return entity instanceof ServerPlayer && !(entity instanceof FakePlayer);
     }
 
-    private static void captureBreakSnapshot(ServerLevel level, BlockPos pos) {
+    private static void captureBreakSnapshot(ServerLevel level, BlockPos pos, BlockState state) {
         if (!GLStorage.isReady()) return;
-        NbtUtil.Capture cap = NbtUtil.captureBreakSnapshot(level, pos, level.getBlockState(pos),
+        // Блок из чёрного списка строки в blocks не породит — снимок остался бы сиротой без родителя.
+        if (BlockLogger.isBlacklisted(level, state, null)) return;
+        NbtUtil.Capture cap = NbtUtil.captureBreakSnapshot(level, pos, state,
                 level.registryAccess(), GLEConfig.maxNbtSizeKb.get());
         if (cap.bytes() != null) {
             GLStorage.get().events().insertBlockNbt(System.currentTimeMillis(),
