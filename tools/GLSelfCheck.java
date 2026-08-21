@@ -94,6 +94,7 @@ public final class GLSelfCheck {
         checkOptionalModSupport();
         checkRollbackSemantics();
         checkRollbackRowLimit(c);
+        checkItemHandlerWrapper();
 
         database.close();
         if (failures > 0) {
@@ -492,6 +493,45 @@ public final class GLSelfCheck {
         }
         check("filters: дублей среди форм нет",
                 new java.util.HashSet<>(forms).size() == forms.size());
+    }
+
+    /**
+     * Прокси item-хендлера обязан переживать сбой АПСТРИМА. Реальный случай: Jade асинхронно
+     * опрашивает инвентарь блока, блок в этот момент уже снесён, чужой {@code InvWrapper} падает
+     * NPE внутри себя — и краш прилетал вызывающему через наш фрейм. Проверяем, что ни один
+     * делегирующий вызов не пробрасывает исключение и возвращает нейтральный дефолт.
+     */
+    private static void checkItemHandlerWrapper() {
+        var broken = new net.neoforged.neoforge.items.IItemHandler() {
+            @Override public int getSlots() { throw new RuntimeException("capability отвалилась"); }
+            @Override public net.minecraft.world.item.ItemStack getStackInSlot(int slot) {
+                throw new RuntimeException("capability отвалилась");
+            }
+            @Override public net.minecraft.world.item.ItemStack insertItem(
+                    int slot, net.minecraft.world.item.ItemStack stack, boolean simulate) {
+                throw new RuntimeException("capability отвалилась");
+            }
+            @Override public net.minecraft.world.item.ItemStack extractItem(int slot, int amount, boolean simulate) {
+                throw new RuntimeException("capability отвалилась");
+            }
+            @Override public int getSlotLimit(int slot) { throw new RuntimeException("capability отвалилась"); }
+            @Override public boolean isItemValid(int slot, net.minecraft.world.item.ItemStack stack) {
+                throw new RuntimeException("capability отвалилась");
+            }
+        };
+        // level/pos до логирования не используются, а логирования при сбое не происходит.
+        var w = new com.gle.integration.GLEItemHandlerWrapper(broken, null, null);
+        // ItemStack.EMPTY здесь недоступен: его класс тянет BuiltInRegistries, а Bootstrap
+        // без загруженного FML не поднимается. Поэтому проверяем те пути, которым ItemStack
+        // не нужен; возврат EMPTY из getStackInSlot/extractItem остаётся на ручную проверку.
+        try {
+            check("wrapper: getSlots отдаёт 0 вместо краша", w.getSlots() == 0);
+            check("wrapper: getSlotLimit отдаёт 0", w.getSlotLimit(0) == 0);
+            check("wrapper: isItemValid отдаёт false", !w.isItemValid(0, null));
+            check("wrapper: insertItem возвращает стак целиком", w.insertItem(0, null, false) == null);
+        } catch (Throwable t) {
+            check("wrapper: сбой апстрима не пробрасывается наружу (" + t + ")", false);
+        }
     }
 
     private static int count(Connection c, String from) throws Exception {
