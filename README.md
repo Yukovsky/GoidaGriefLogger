@@ -178,6 +178,8 @@ The SQLite and MySQL-connector drivers are embedded in the jar. Nothing extra to
   maxRestoreAgeDays = 7
   maxPreviewDurationSec = 60
   previewAutoCancelBlocks = 50  # cancel the preview once the player walks this far
+  maxRollbackRows = 300000      # max rows read per rollback/restore/preview; the excess is cut
+                                # from the tail (oldest first) and reported in the server log
 
 [integrations]
   universalItemTracking = false  # experimental: track all IItemHandler movements
